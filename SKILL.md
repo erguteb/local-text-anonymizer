@@ -57,6 +57,9 @@ ollama pull qwen3.5:latest
 curl -s http://127.0.0.1:11434/api/tags
 ```
 
+If the `ollama` command is missing, install Ollama for your local environment first. Then start
+the server and pull the model before running the full example.
+
 Use `http://127.0.0.1:11434` only if a local Ollama server is actually running there. If your
 environment uses a different local endpoint, start Ollama for that environment and pass the
 correct value via `--ollama-base-url`.
@@ -125,6 +128,7 @@ Expected result:
 - the syntax smoke test passes
 - preflight reports the pinned package versions
 - preflight prints the configured `--ollama-base-url`
+- preflight reports whether the `ollama` binary is installed locally
 - if Ollama is reachable at that configured endpoint, preflight reports:
   - endpoint reachable
   - locally available models

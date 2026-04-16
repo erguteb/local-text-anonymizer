@@ -25,6 +25,7 @@ import json
 import math
 import os
 import re
+import shutil
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -2201,6 +2202,17 @@ def main() -> None:
         print("transformers:", getattr(transformers, "__version__", "unknown"))
         print("vec2text:", getattr(vec2text, "__version__", "unknown"))
         print("ollama_base_url:", args.ollama_base_url)
+        ollama_binary = shutil.which("ollama")
+        if ollama_binary:
+            print("ollama_binary: present")
+            print("ollama_binary_path:", ollama_binary)
+        else:
+            print("ollama_binary: missing")
+            print(
+                "ollama_install_hint: install Ollama for your environment first, then run "
+                "`ollama serve` and `ollama pull "
+                f"{args.paraphrase_model}` before the full example."
+            )
         if getattr(transformers, "__version__", None) != REQUIRED_TRANSFORMERS_VERSION:
             raise RuntimeError(
                 "Unsupported transformers version "
