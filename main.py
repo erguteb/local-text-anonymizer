@@ -26,6 +26,7 @@ import math
 import os
 import re
 import shutil
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -981,6 +982,7 @@ def anonymize_localized(
     max_length: Optional[int] = 40,
     joint_opt_steps: int = 80,
     joint_opt_lr: float = 0.1,
+    precomputed_keyword_embeddings: Optional[torch.Tensor] = None,
 ) -> AnonymizationResult:
     """
     Anonymize one text segment by optimizing a joint embedding objective, then inverting.
@@ -990,15 +992,16 @@ def anonymize_localized(
     noisy = add_gaussian_noise(clean, noise_std=float(sigma), seed=int(noise_seed))
 
     cleaned_keywords = [k.strip() for k in keywords if k and k.strip()]
-    keyword_embs: Optional[torch.Tensor] = None
+    keyword_embs: Optional[torch.Tensor] = precomputed_keyword_embeddings
     target_embedding = l2_normalize(noisy)
     if len(cleaned_keywords) > 0:
-        keyword_embs = embed_texts(
-            corrector,
-            cleaned_keywords,
-            max_length=keyword_embed_max_length,
-            device=device,
-        )
+        if keyword_embs is None:
+            keyword_embs = embed_texts(
+                corrector,
+                cleaned_keywords,
+                max_length=keyword_embed_max_length,
+                device=device,
+            )
         target_embedding = optimize_joint_target_embedding(
             noisy_embedding=noisy,
             keyword_embeddings=keyword_embs,
@@ -1068,6 +1071,16 @@ def anonymize_localized_sentence_wise(
             source_sentences=[],
         )
 
+    cleaned_keywords = [k.strip() for k in keywords if k and k.strip()]
+    shared_keyword_embs: Optional[torch.Tensor] = None
+    if cleaned_keywords:
+        shared_keyword_embs = embed_texts(
+            corrector,
+            cleaned_keywords,
+            max_length=keyword_embed_max_length,
+            device=device,
+        )
+
     sentence_results: List[AnonymizationResult] = []
     for i, sentence in enumerate(source_sentences):
         result = anonymize_localized(
@@ -1086,6 +1099,7 @@ def anonymize_localized_sentence_wise(
             max_length=max_length,
             joint_opt_steps=joint_opt_steps,
             joint_opt_lr=joint_opt_lr,
+            precomputed_keyword_embeddings=shared_keyword_embs,
         )
         sentence_results.append(result)
 
@@ -1673,28 +1687,141 @@ def select_request_sentence(sentences: Sequence[str]) -> str:
     return sentences[-1].strip() if sentences else ""
 
 
-def build_template_fallback_output(
+def is_request_like_sentence(sentence: str) -> bool:
+    """Return True when a sentence reads like a concrete request."""
+
+    lowered = sentence.lower()
+    return any(
+        marker in lowered
+        for marker in ("want", "need", "looking", "recommend", "help", "find", "search")
+    )
+
+
+def select_safe_fusion_candidates(
     *,
-    preprocessed: PreprocessedPrivacyText,
+    source_text: str,
+    residual_summary: str,
+    candidate_text: str,
     keywords: Sequence[str],
-    residual_summary: Optional[str] = None,
-) -> str:
+    preprocessed: PreprocessedPrivacyText,
+) -> List[str]:
     """
-    Build a deterministic final prompt from scrubbed text and approved public slots.
+    Extract grounded fragments from degraded generated text for final rendering.
+
+    This is a post-processing choice only. It does not change the three privacy
+    layers or the DP accountant; it just allows the final structured output to
+    reuse short candidate sentences when they stay close to the scrubbed source.
     """
 
-    del keywords
-    summary_text = restore_safe_slot_placeholders(
-        residual_summary if residual_summary is not None else preprocessed.scrubbed_text,
+    del residual_summary
+    restored_candidate = restore_safe_slot_placeholders(
+        candidate_text,
         safe_task_keywords=preprocessed.safe_task_keywords,
         safe_location_keywords=preprocessed.safe_location_keywords,
         safe_preference_keywords=preprocessed.safe_preference_keywords,
     )
-    sentences = split_sentences_by_period(summary_text)
-    context_sentence = sentences[0].strip() if sentences else ""
-    request_sentence = select_request_sentence(sentences)
-    if request_sentence == context_sentence and len(sentences) > 1:
-        request_sentence = sentences[-1].strip()
+    restored_source = restore_safe_slot_placeholders(
+        source_text,
+        safe_task_keywords=preprocessed.safe_task_keywords,
+        safe_location_keywords=preprocessed.safe_location_keywords,
+        safe_preference_keywords=preprocessed.safe_preference_keywords,
+    )
+    candidates = split_sentences_by_period(restored_candidate)
+    accepted: List[str] = []
+    for sentence in candidates:
+        cleaned = normalize_whitespace(sentence)
+        if not cleaned:
+            continue
+        if len(cleaned.split()) < 4:
+            continue
+        if len(cleaned.split()) > 28:
+            continue
+        if ".." in cleaned or ";;" in cleaned or "''" in cleaned:
+            continue
+        if has_unapproved_numeric_content(restored_source, cleaned, keywords):
+            continue
+        if has_unapproved_capitalized_entities(restored_source, cleaned, keywords):
+            continue
+        if has_unapproved_location_content(restored_source, cleaned, keywords):
+            continue
+        if lexical_overlap_ratio(restored_source, cleaned) < 0.30:
+            continue
+        accepted.append(cleaned)
+    return accepted
+
+
+def choose_fused_context_and_request(
+    *,
+    summary_text: str,
+    accepted_candidates: Sequence[str],
+) -> Tuple[str, str]:
+    """Choose context/request sentences using safe candidates over summary defaults."""
+
+    summary_sentences = split_sentences_by_period(summary_text)
+    context_sentence = summary_sentences[0].strip() if summary_sentences else ""
+    request_sentence = select_request_sentence(summary_sentences)
+    if request_sentence == context_sentence and len(summary_sentences) > 1:
+        request_sentence = summary_sentences[-1].strip()
+
+    request_candidate = ""
+    for sentence in accepted_candidates:
+        if is_request_like_sentence(sentence):
+            request_candidate = sentence
+            break
+
+    context_candidate = ""
+    for sentence in accepted_candidates:
+        if sentence == request_candidate:
+            continue
+        context_candidate = sentence
+        if not is_request_like_sentence(sentence):
+            break
+
+    if context_candidate:
+        context_sentence = context_candidate
+    if request_candidate:
+        request_sentence = request_candidate
+    elif context_candidate and is_request_like_sentence(context_candidate):
+        request_sentence = context_candidate
+
+    return context_sentence, request_sentence
+
+
+def build_fused_fallback_output(
+    *,
+    preprocessed: PreprocessedPrivacyText,
+    keywords: Sequence[str],
+    residual_summary: str,
+    candidate_text: Optional[str] = None,
+) -> str:
+    """
+    Build the final structured output with guarded optional enrichment.
+
+    The deterministic structured template remains the safe floor. Generated text
+    may enrich Context/Request only when short fragments survive the local
+    rewrite, overlap, and punctuation checks.
+    """
+
+    summary_text = restore_safe_slot_placeholders(
+        residual_summary,
+        safe_task_keywords=preprocessed.safe_task_keywords,
+        safe_location_keywords=preprocessed.safe_location_keywords,
+        safe_preference_keywords=preprocessed.safe_preference_keywords,
+    )
+    accepted_candidates: List[str] = []
+    if candidate_text:
+        accepted_candidates = select_safe_fusion_candidates(
+            source_text=preprocessed.residual_text,
+            residual_summary=summary_text,
+            candidate_text=candidate_text,
+            keywords=keywords,
+            preprocessed=preprocessed,
+        )
+
+    context_sentence, request_sentence = choose_fused_context_and_request(
+        summary_text=summary_text,
+        accepted_candidates=accepted_candidates,
+    )
 
     parts: List[str] = []
     if context_sentence:
@@ -1711,6 +1838,23 @@ def build_template_fallback_output(
     if not parts:
         return summary_text
     return " ".join(parts)
+
+
+def build_template_fallback_output(
+    *,
+    preprocessed: PreprocessedPrivacyText,
+    keywords: Sequence[str],
+    residual_summary: Optional[str] = None,
+) -> str:
+    """
+    Build a deterministic final prompt from scrubbed text and approved public slots.
+    """
+    return build_fused_fallback_output(
+        preprocessed=preprocessed,
+        keywords=keywords,
+        residual_summary=residual_summary if residual_summary is not None else preprocessed.scrubbed_text,
+        candidate_text=None,
+    )
 
 
 @torch.no_grad()
@@ -2181,9 +2325,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help=(
-            "Enable fast mode: reduces joint-opt-steps to 40, num-steps to 20, and "
-            "paraphrase-num-beams to 2. Implies --skip-baseline. Trades modest quality "
-            "for ~3-4x total speedup."
+            "Enable fast mode: uses a lighter local validation configuration with fewer "
+            "vec2text optimization/inversion steps, one-pass paraphrase settings, and no "
+            "post-run embedding audit. Implies --skip-baseline. Preserves the three-layer "
+            "privacy flow and DP accounting while reducing runtime."
+        ),
+    )
+    parser.add_argument(
+        "--skip-embedding-checks",
+        action="store_true",
+        default=False,
+        help=(
+            "Skip the final per-chunk embedding audit. This does not change anonymization "
+            "or DP accounting; it only avoids extra evaluation work."
         ),
     )
 
@@ -2192,6 +2346,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """Execute full anonymize -> paraphrase workflow."""
+
+    total_start = time.perf_counter()
+    stage_timings: List[Tuple[str, float]] = []
+
+    def record_stage(name: str, start_time: float) -> None:
+        stage_timings.append((name, time.perf_counter() - start_time))
 
     args = build_arg_parser().parse_args()
     if args.preflight:
@@ -2256,9 +2416,14 @@ def main() -> None:
         raise SystemExit("main.py: error: the following arguments are required: -t/--text")
     if args.fast:
         args.skip_baseline = True
-        args.joint_opt_steps = min(args.joint_opt_steps, 40)
-        args.num_steps = min(args.num_steps, 20)
-        args.paraphrase_num_beams = min(args.paraphrase_num_beams, 2)
+        args.skip_embedding_checks = True
+        args.joint_opt_steps = min(args.joint_opt_steps, 8)
+        args.num_steps = min(args.num_steps, 5)
+        args.paraphrase_num_beams = min(args.paraphrase_num_beams, 1)
+        args.paraphrase_max_new_tokens = min(args.paraphrase_max_new_tokens, 96)
+        args.paraphrase_by_sentence = False
+        args.min_length = min(args.min_length, 4)
+        args.max_length = min(args.max_length, 24)
         args.max_privacy_chunks = min(args.max_privacy_chunks, 2)
 
     keywords = parse_keyword_list(args.keywords)
@@ -2274,12 +2439,14 @@ def main() -> None:
     else:
         print("  (none — inversion uses noisy E(X) only)")
 
+    preprocess_start = time.perf_counter()
     preprocessed = preprocess_privacy_text(
         args.text,
         keywords=keywords,
         removal_targets=initial_removals,
         max_privacy_chunks=args.max_privacy_chunks,
     )
+    record_stage("preprocess_sec", preprocess_start)
     print("\n--- Deterministic privacy scrub (pre-embedding) ---")
     print(preprocessed.scrubbed_text or "(empty after scrub)")
     print("Residual text sent into DP path:", preprocessed.residual_text or "(empty residual)")
@@ -2292,14 +2459,17 @@ def main() -> None:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print("\nDevice:", device)
 
+    model_load_start = time.perf_counter()
     corrector = load_vec2text_corrector(
         device=device,
         inversion_model_name=args.vec2text_inversion_model,
         corrector_model_name=args.vec2text_corrector_model,
         cache_dir=args.vec2text_cache_dir,
     )
+    record_stage("model_load_sec", model_load_start)
 
     # Main path: keyword-guided anonymization (used for downstream final output).
+    anonymize_start = time.perf_counter()
     sentence_wise = anonymize_localized_sentence_wise(
         private_text=preprocessed.residual_text,
         keywords=keywords,
@@ -2315,9 +2485,11 @@ def main() -> None:
         max_length=args.max_length,
         max_privacy_chunks=args.max_privacy_chunks,
     )
+    record_stage("anonymize_with_keywords_sec", anonymize_start)
 
     sentence_wise_no_keywords: Optional[SentenceWiseAnonymizationResult] = None
     if not args.skip_baseline:
+        baseline_start = time.perf_counter()
         sentence_wise_no_keywords = anonymize_localized_sentence_wise(
             private_text=preprocessed.residual_text,
             keywords=[],
@@ -2333,6 +2505,7 @@ def main() -> None:
             max_length=args.max_length,
             max_privacy_chunks=args.max_privacy_chunks,
         )
+        record_stage("anonymize_baseline_sec", baseline_start)
 
     accountant = estimate_metric_dp_privacy_cost(
         num_releases=len(sentence_wise.source_sentences),
@@ -2390,6 +2563,7 @@ def main() -> None:
     if args.llm_backend == "ollama":
         print("Ollama base URL:", args.ollama_base_url)
 
+    paraphrase_start = time.perf_counter()
     paraphrase_result = paraphrase_with_open_source_llm(
         sentence_wise.anonymized_text,
         model_name=args.paraphrase_model,
@@ -2404,6 +2578,7 @@ def main() -> None:
         llm_backend=args.llm_backend,
         ollama_base_url=args.ollama_base_url,
     )
+    record_stage("paraphrase_sec", paraphrase_start)
 
     print("\n--- Paraphrased output (human-like prompt style) ---")
     print(paraphrase_result.paraphrased_text)
@@ -2411,6 +2586,7 @@ def main() -> None:
     print("  model_name:", paraphrase_result.model_name)
     print("  model_type:", paraphrase_result.model_type)
 
+    postprocess_start = time.perf_counter()
     refined_output = paraphrase_result.paraphrased_text
     current_model_name = paraphrase_result.model_name
 
@@ -2480,6 +2656,7 @@ def main() -> None:
             print("\n--- Updated output ---")
             print(refined_output)
 
+    fusion_candidate_text = refined_output
     if looks_like_quality_collapse(
         preprocessed.residual_text,
         refined_output,
@@ -2489,64 +2666,80 @@ def main() -> None:
         print("\n--- Residual summary fallback output ---")
         print(refined_output)
 
-    final_output = build_template_fallback_output(
+    final_output = build_fused_fallback_output(
         preprocessed=preprocessed,
         keywords=keywords,
         residual_summary=refined_output,
+        candidate_text=fusion_candidate_text,
     )
+    if fusion_candidate_text != refined_output:
+        print("\n--- Fusion-guarded final rendering ---")
+        print(final_output)
     print("\n--- Structured final output ---")
     print(final_output)
 
     print("\n--- Final output after optional removals ---")
     print(final_output)
+    record_stage("postprocess_sec", postprocess_start)
 
-    print("\n--- Per-chunk embedding checks (side-by-side) ---")
-    keyword_eval_embs: Optional[torch.Tensor] = None
-    if keywords:
-        keyword_eval_embs = embed_texts(
-            corrector,
-            keywords,
-            max_length=32,
-            device=device,
-        )
-    comparison_pairs = (
-        zip(sentence_wise.sentence_results, sentence_wise_no_keywords.sentence_results)
-        if sentence_wise_no_keywords is not None
-        else ((result_kw, result_kw) for result_kw in sentence_wise.sentence_results)
-    )
-    for i, (result_kw, result_no_kw) in enumerate(comparison_pairs, start=1):
-        recovered_kw = embed_texts(
-            corrector,
-            [result_kw.anonymized_text],
-            max_length=128,
-            device=device,
-        )
-        recovered_no_kw = embed_texts(
-            corrector,
-            [result_no_kw.anonymized_text],
-            max_length=128,
-            device=device,
-        )
-        clean_ref = result_kw.clean_embedding.to(device)
-        cos_kw = cosine_sim(recovered_kw, clean_ref)
-        cos_no_kw = cosine_sim(recovered_no_kw, clean_ref)
-        print(
-            f"  [{i}] cos(recovered, clean E(sentence)) "
-            f"with_kw / without_kw = {cos_kw:.4f} / {cos_no_kw:.4f}"
-        )
-        if keyword_eval_embs is not None:
-            kw_mean_with, kw_max_with = cos_to_keywords(
-                recovered_kw,
-                keyword_eval_embs,
+    if args.skip_embedding_checks:
+        print("\n--- Per-chunk embedding checks (side-by-side) ---")
+        print("Skipped by configuration.")
+    else:
+        embedding_checks_start = time.perf_counter()
+        print("\n--- Per-chunk embedding checks (side-by-side) ---")
+        keyword_eval_embs: Optional[torch.Tensor] = None
+        if keywords:
+            keyword_eval_embs = embed_texts(
+                corrector,
+                keywords,
+                max_length=32,
+                device=device,
             )
-            kw_mean_no, kw_max_no = cos_to_keywords(
-                recovered_no_kw,
-                keyword_eval_embs,
+        comparison_pairs = (
+            zip(sentence_wise.sentence_results, sentence_wise_no_keywords.sentence_results)
+            if sentence_wise_no_keywords is not None
+            else ((result_kw, result_kw) for result_kw in sentence_wise.sentence_results)
+        )
+        for i, (result_kw, result_no_kw) in enumerate(comparison_pairs, start=1):
+            recovered_kw = embed_texts(
+                corrector,
+                [result_kw.anonymized_text],
+                max_length=128,
+                device=device,
             )
+            recovered_no_kw = embed_texts(
+                corrector,
+                [result_no_kw.anonymized_text],
+                max_length=128,
+                device=device,
+            )
+            clean_ref = result_kw.clean_embedding.to(device)
+            cos_kw = cosine_sim(recovered_kw, clean_ref)
+            cos_no_kw = cosine_sim(recovered_no_kw, clean_ref)
             print(
-                "       kw_cos_mean/max with_kw / without_kw = "
-                f"{kw_mean_with:.4f}/{kw_max_with:.4f} / {kw_mean_no:.4f}/{kw_max_no:.4f}"
+                f"  [{i}] cos(recovered, clean E(sentence)) "
+                f"with_kw / without_kw = {cos_kw:.4f} / {cos_no_kw:.4f}"
             )
+            if keyword_eval_embs is not None:
+                kw_mean_with, kw_max_with = cos_to_keywords(
+                    recovered_kw,
+                    keyword_eval_embs,
+                )
+                kw_mean_no, kw_max_no = cos_to_keywords(
+                    recovered_no_kw,
+                    keyword_eval_embs,
+                )
+                print(
+                    "       kw_cos_mean/max with_kw / without_kw = "
+                    f"{kw_mean_with:.4f}/{kw_max_with:.4f} / {kw_mean_no:.4f}/{kw_max_no:.4f}"
+                )
+        record_stage("embedding_checks_sec", embedding_checks_start)
+
+    print("\n--- Stage timing ---")
+    for stage_name, duration in stage_timings:
+        print(f"  {stage_name}: {duration:.2f}")
+    print(f"  total_sec: {time.perf_counter() - total_start:.2f}")
 
 
 if __name__ == "__main__":

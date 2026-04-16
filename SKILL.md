@@ -26,14 +26,14 @@ This skill is designed for repositories that already contain a local anonymizer 
 The corresponding public repository is:
 
 - `REPO_URL=https://github.com/erguteb/local-text-anonymizer`
-- `REPO_COMMIT=fefbdc65f27523fe0c7adc9ef1a770f5e54c8063`
+- `REPO_COMMIT=7c3d975ff4b8f36ba9e3b216babc1b827ed53e26`
 
 If this skill is evaluated from a fresh environment, clone the repository first and then run the bundled or repository `main.py`.
 
 ```bash
 git clone https://github.com/erguteb/local-text-anonymizer
 cd local-text-anonymizer
-git checkout fefbdc65f27523fe0c7adc9ef1a770f5e54c8063
+git checkout 7c3d975ff4b8f36ba9e3b216babc1b827ed53e26
 python3 -m py_compile main.py
 ```
 
@@ -194,7 +194,7 @@ Expected result:
 - Layer 2 is intentionally preserved
 - Layer 3 is the only DP-accounted mechanism
 
-### Step 3: run a representative local example
+### Step 3: run a reduced-runtime local validation example
 
 Before the representative example, run preflight first and verify that the configured
 `--ollama-base-url` is reachable and that the requested model is available locally. Only run
@@ -218,7 +218,19 @@ source .venv/bin/activate
 python3 main.py --preflight --llm-backend ollama --paraphrase-model "qwen3.5:latest"
 ```
 
-Only after those succeed should you run the full example below.
+Only after those succeed should you run the reduced-runtime validation example below.
+
+Use `--fast` for the first end-to-end validation pass. This mode is the preferred smoke
+validation path because the full vec2text inversion and correction pipeline can be slow on a
+CPU-only or lightly provisioned local machine. In `--fast` mode the script keeps the same
+three-layer privacy structure and residual-only DP accounting, but reduces expensive local
+work by:
+
+- using fewer joint embedding optimization steps
+- using fewer vec2text recursive inversion steps
+- using a single paraphrase call instead of sentence-by-sentence paraphrasing
+- skipping the no-keyword baseline path
+- skipping the final embedding audit, which is evaluation-only and does not affect the output
 
 Run:
 
@@ -234,7 +246,8 @@ python3 main.py \
   --paraphrase-model "qwen3.5:latest" \
   --ollama-base-url "http://127.0.0.1:11434" \
   --skip-baseline \
-  --no-interactive-removal
+  --no-interactive-removal \
+  --fast
 ```
 
 Use `http://127.0.0.1:11434` only if a local Ollama server is actually running there. If your
@@ -256,9 +269,17 @@ Expected result:
 - the output prints preserved public keywords
 - the output prints residual DP release units
 - the output prints a DP accountant with scope restricted to residual ambiguous content only
+- the three privacy layers remain intact in fast mode; only runtime-heavy local evaluation work is reduced
 - if generation quality collapses, the pipeline emits:
   - a residual summary fallback output
-  - a structured final output built from the preserved public slots
+  - a fusion-guarded structured final output built from the preserved public slots
+- the output prints a stage timing summary so the reviewer can see where runtime is spent
+
+### Step 3b: run the full heavyweight example only if needed
+
+If you need the full research-style path rather than a smoke validation run, rerun the same
+command without `--fast`. Expect this to take materially longer, especially when vec2text
+model loading, inversion, and correction are running on CPU.
 
 ### Step 4: confirm Layer 1 behavior
 
@@ -323,12 +344,13 @@ Expected result:
 
 - degraded inversion text is not accepted silently
 
-### Step 8: confirm deterministic fallback behavior
+### Step 8: confirm guarded fallback behavior
 
-Check that when generation quality collapses, the pipeline emits a two-stage fallback:
+Check that when generation quality collapses, the pipeline emits:
 
 1. a residual summary fallback that stays close to the scrubbed residual text
-2. a structured final rendering built from the residual summary plus the preserved public slots
+2. a guarded fusion step that may reuse only safe grounded fragments from the generated text
+3. a structured final rendering built from the residual summary plus the preserved public slots
 
 The structured rendering should contain:
 
@@ -344,6 +366,8 @@ The structured rendering should contain:
 Expected result:
 
 - the final output remains usable and local, even when inversion quality is poor
+- `Task`, `Location`, and `Preferences` remain deterministic and slot-driven
+- `Context` and `Request` may be lightly enriched only when candidate fragments survive local safety and grounding checks
 
 ### Step 9: run local regression tests
 
@@ -374,6 +398,7 @@ Expected result:
 - the CLI loads locally without import errors
 - the pinned dependency environment is consistent with the artifact
 - the public tests pass locally
+- the reduced-runtime `--fast` example is the default validation path for end-to-end checks
 
 ## Acceptance criteria
 
@@ -384,7 +409,7 @@ This skill succeeds only if all of the following are true:
 - Layer 2 approved public slots are preserved outside DP
 - Layer 3 residual ambiguous content is the only DP-accounted mechanism
 - the accountant is reported explicitly
-- bad generated text is replaced by deterministic fallback output
+- bad generated text is constrained by guarded fusion and ultimately replaced by deterministic fallback structure when needed
 
 ## Output audit summary
 
@@ -405,3 +430,4 @@ After running the workflow, produce a final summary with these fields:
 - Deterministic scrub quality depends on the strength of the local rules.
 - The representative example requires a reachable local Ollama server and a locally available model.
 - `http://127.0.0.1:11434` is only the default local Ollama endpoint example; other local environments may require a different `--ollama-base-url`.
+- The full non-`--fast` representative example can be slow because vec2text inversion and correction are compute-heavy local steps.

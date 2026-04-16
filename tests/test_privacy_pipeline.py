@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import pathlib
+import sys
 import unittest
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 import main
 
@@ -76,6 +80,43 @@ class TestTemplateFallback(unittest.TestCase):
         self.assertIn("Task: restaurant, solo dining", output)
         self.assertIn("Location: UK, London", output)
         self.assertIn("Preferences: cozy", output)
+        self.assertIn("London for work", output)
+        self.assertIn("cozy restaurant tonight", output)
+
+    def test_fusion_accepts_safe_aligned_fragment_for_context_request(self):
+        processed = main.preprocess_privacy_text(
+            "I’m [AGE], just moved to London for work after a breakup. I want a cozy restaurant tonight where dining alone feels comfortable.",
+            keywords=["restaurant", "UK", "London", "cozy", "solo dining"],
+            removal_targets=[],
+            max_privacy_chunks=2,
+        )
+        output = main.build_fused_fallback_output(
+            preprocessed=processed,
+            keywords=processed.preserved_keywords,
+            residual_summary=processed.residual_text,
+            candidate_text=(
+                "I just moved to London for work after a breakup. "
+                "I want a cozy restaurant tonight where dining alone feels comfortable."
+            ),
+        )
+        self.assertIn("Context: I just moved to London for work after a breakup", output)
+        self.assertIn("Request: I want a cozy restaurant tonight where dining alone feels comfortable.", output)
+
+    def test_fusion_rejects_nonsense_and_keeps_deterministic_floor(self):
+        processed = main.preprocess_privacy_text(
+            "I’m [AGE], just moved to London for work after a breakup. I want a cozy restaurant tonight where dining alone feels comfortable.",
+            keywords=["restaurant", "UK", "London", "cozy", "solo dining"],
+            removal_targets=[],
+            max_privacy_chunks=2,
+        )
+        output = main.build_fused_fallback_output(
+            preprocessed=processed,
+            keywords=processed.preserved_keywords,
+            residual_summary=processed.residual_text,
+            candidate_text="A cookedolin' pity attacks around a microphone.",
+        )
+        self.assertNotIn("microphone", output)
+        self.assertNotIn("cookedolin", output)
         self.assertIn("London for work", output)
         self.assertIn("cozy restaurant tonight", output)
 
