@@ -1,320 +1,254 @@
-# Claw4S Submission: Local Anonymizer Improvement
+# Local Anonymizer Improvement
 
-## Skill Summary
+## Purpose
 
-This skill upgrades a local text anonymization pipeline into a three-layer privacy architecture:
+This skill upgrades a local text anonymization pipeline into a stricter three-layer privacy architecture and validates that the resulting system remains fully local.
 
-1. Deterministic local scrubbing for explicit sensitive information.
-2. Deterministic preservation of approved public or utility-preserving slots.
-3. Differentially private protection and accounting for ambiguous residual information only.
+The target architecture is:
 
-The skill is intended for codebases that already contain a local anonymizer and need to be hardened so that:
-- no commercial LLM services are used,
-- explicit sensitive spans are scrubbed before embedding or generation,
-- only ambiguous residual content is inside the DP mechanism,
-- low-quality generated outputs fall back to deterministic local rendering.
+1. **Layer 1: deterministic scrub before embeddings**
+   Remove or generalize explicit sensitive information locally before any embedding or generation step.
+2. **Layer 2: approved public slot preservation**
+   Preserve user-approved public or utility-preserving information outside the privacy mechanism.
+3. **Layer 3: DP protection for ambiguous residual content**
+   Apply embedding perturbation and privacy accounting only to the residual ambiguous content.
 
-## Inputs
+This skill is designed for repositories that already contain a local anonymizer and need to be hardened rather than rewritten from scratch.
 
-- `REPO_PATH`: path to the anonymizer repository
-- `ENTRY_FILE`: main CLI or pipeline file to patch and run
-- `TEST_PATH`: test directory or target test files
-- `LOCAL_LLM_BACKEND`: one of `ollama` or `hf`
+## Included files
 
-## Default Artifact Instance
+- `main.py`: the Python implementation corresponding to this skill
+- `SKILL.md`: this execution guide
 
-For the reference artifact used during development of this skill:
+## Source repository
 
-- `REPO_PATH=/home/ubuntu/vec2text-with-inclusion-of-keyword`
-- `ENTRY_FILE=main.py`
-- `TEST_PATH=tests`
-- `LOCAL_LLM_BACKEND=ollama`
+The corresponding public repository is:
 
-If the artifact is hosted publicly, also provide:
+- `REPO_URL=https://github.com/erguteb/local-text-anonymizer`
 
-- `REPO_URL`: public Git repository URL
-- `REPO_COMMIT`: pinned commit hash to check out before execution
+If this skill is evaluated from a fresh environment, clone the repository first and then run the bundled or repository `main.py`.
 
-## Preconditions
+```bash
+git clone https://github.com/erguteb/local-text-anonymizer
+cd local-text-anonymizer
+python3 main.py --help
+```
 
-- The repository is available locally.
+## Required runtime assumptions
+
 - Python 3 is installed.
-- The anonymizer already runs locally or can be patched to do so.
-- If `LOCAL_LLM_BACKEND=ollama`, a local Ollama server is running and the target model is pulled.
+- The skill runs locally only.
+- If Ollama is used, a local Ollama server is running and the chosen model is already available.
+- No commercial LLM service is used at any point in the anonymization flow.
 
-If the repository is not already present locally but is publicly hosted, acquire it with a pinned revision before continuing:
+## Canonical entrypoint
 
-```bash
-git clone "$REPO_URL" "$REPO_PATH"
-cd "$REPO_PATH"
-git checkout "$REPO_COMMIT"
-```
-
-Do not rely on an unpinned branch name for review-time execution.
-
-## Step 1: Inspect the current pipeline
-
-### Goal
-
-Find where the repository currently handles:
-- explicit removals,
-- keyword or slot preservation,
-- embedding perturbation,
-- privacy accounting,
-- local regeneration,
-- final output rendering.
-
-### Commands
+Run:
 
 ```bash
-cd "$REPO_PATH"
-rg -n "remove|keyword|sigma|delta|epsilon|paraphrase|ollama|hf|baseline|sentence|chunk" "$ENTRY_FILE"
-sed -n '1,260p' "$ENTRY_FILE"
-python3 "$ENTRY_FILE" --help
+python3 main.py --help
 ```
 
-### Expected output
+The skill assumes `main.py` is the artifact entrypoint unless you intentionally rename it and update this file.
 
-- Locations of the scrub, keyword, DP, and rewrite logic are identified.
-- The main entrypoint and current CLI flags are visible.
+## What the code should do
 
-## Step 2: Classify the current design into the three layers
+The final pipeline must satisfy all of the following:
 
-### Goal
+- explicit sensitive information is scrubbed before embeddings
+- approved public keywords are preserved outside the DP mechanism
+- only ambiguous residual content is counted by the DP accountant
+- local rewriting is constrained to avoid invented names, numbers, and locations
+- low-quality generated text falls back to a deterministic local template
+- the runtime output explicitly states the DP scope
 
-Map the existing implementation to:
-- Layer 1: explicit sensitive information
-- Layer 2: approved public or utility-preserving information
-- Layer 3: ambiguous residual information
+## Execution workflow
 
-### Actions
+### Step 1: verify the artifact entrypoint
 
-- Record whether explicit removals happen before or after embeddings.
-- Record whether approved public slots are currently perturbed.
-- Record whether DP accounting is currently scoped to the full text or only the residual content.
+Run:
 
-### Expected output
+```bash
+python3 main.py --help
+```
 
-- A short written classification of the current architecture.
-- A list of architectural failures to patch.
+Expected result:
 
-## Step 3: Patch Layer 1 so deterministic scrub happens before embeddings
+- the CLI loads successfully
+- the runtime flags include privacy controls such as:
+  - `--remove-info`
+  - `--keywords`
+  - `--sigma`
+  - `--max-privacy-chunks`
+  - `--skip-baseline`
 
-### Goal
+### Step 2: inspect whether the pipeline is truly three-layer
 
-Ensure explicit sensitive spans are locally scrubbed before any embedding or local generation step.
+Read the code paths in `main.py` that implement:
 
-### Required implementation
+- preprocessing or scrub logic
+- keyword preservation
+- privacy chunking
+- DP accounting
+- local rewrite logic
+- deterministic fallback rendering
 
-- Add typed expansion for category-level removals such as:
-  - `all names`
-  - `age`
-  - `all employers`
-  - `all locations`
-- Replace fragile literal-only removal with typed local scrubbing rules.
-- Use placeholders such as:
+Expected result:
+
+- Layer 1 occurs before embedding inversion
+- Layer 2 is intentionally preserved
+- Layer 3 is the only DP-accounted mechanism
+
+### Step 3: run a representative local example
+
+Run:
+
+```bash
+python3 main.py \
+  --text "I’m 23, just moved to London for work, and my flat in Shoreditch feels empty after a breakup. I want a cozy restaurant tonight where dining alone feels comfortable." \
+  --keywords "restaurant, UK, London, cozy, solo dining" \
+  --remove-info "all names, age, Shoreditch" \
+  --sigma 0.15 \
+  --max-privacy-chunks 2 \
+  --llm-backend ollama \
+  --paraphrase-model "qwen3.5:latest" \
+  --ollama-base-url "http://127.0.0.1:11434" \
+  --skip-baseline \
+  --no-interactive-removal
+```
+
+Expected result:
+
+- the output prints a deterministic pre-embedding scrub
+- the output prints expanded removal targets
+- the output prints preserved public keywords
+- the output prints residual DP release units
+- the output prints a DP accountant with scope restricted to residual ambiguous content only
+- if generation quality collapses, the final output is replaced by a deterministic template fallback
+
+### Step 4: confirm Layer 1 behavior
+
+Look for a preprocessing stage that:
+
+- expands category requests like `all names` and `age`
+- applies local typed replacements such as:
   - `[PERSON]`
   - `[AGE]`
   - `[ORG]`
   - `[LOCATION]`
+- produces a scrubbed text before embedding
 
-### Commands
+Expected result:
 
-```bash
-cd "$REPO_PATH"
-rg -n "parse_removal|replace_targets|literal" "$ENTRY_FILE"
-```
+- explicit sensitive data does not reach the embedding step in raw form
 
-### Expected output
+### Step 5: confirm Layer 2 behavior
 
-- The pipeline has a deterministic preprocessing function that returns scrubbed text before the DP path.
-- Category-level removals are expanded locally without calling any commercial service.
+Check that approved public slots such as:
 
-## Step 4: Patch Layer 2 so approved public slots are preserved outside DP
+- `London`
+- `UK`
+- `restaurant`
+- `cozy`
+- `solo dining`
 
-### Goal
+are preserved outside the DP mechanism and reused in final rendering.
 
-Treat user-approved public or utility-preserving content as deterministic slots, not private residual content.
+Expected result:
 
-### Required implementation
+- utility-preserving slots remain deterministic and are not unnecessarily distorted
 
-- Preserve approved keywords or slots separately from the residual text.
-- Keep them outside the DP accountant.
-- Reuse them later during final rendering.
+### Step 6: confirm Layer 3 behavior
 
-### Commands
+Check that:
 
-```bash
-cd "$REPO_PATH"
-rg -n "keywords|public|slot|preserve" "$ENTRY_FILE"
-```
-
-### Expected output
-
-- Approved public keywords remain available after preprocessing.
-- The code explicitly treats them as outside the DP mechanism.
-
-## Step 5: Patch Layer 3 so only ambiguous residual content enters the DP mechanism
-
-### Goal
-
-Restrict DP perturbation and accounting to the ambiguous residual content only.
-
-### Required implementation
-
-- Build residual text after Layer 1 scrub and Layer 2 slot extraction.
-- Segment residual text conservatively.
-- Add a CLI parameter to cap release count, such as `--max-privacy-chunks`.
-- Compute DP accounting using:
+- the residual text is segmented into a bounded number of chunks
+- each chunk is counted as one release
+- the accountant reports:
   - `num_releases`
   - `sigma`
   - `delta`
   - `sensitivity`
-  - composed `epsilon`
+  - `epsilon_estimate`
 
-### Commands
+Expected result:
+
+- the accountant scope is printed as residual ambiguous content only
+
+### Step 7: confirm local rewrite constraints
+
+Check that the local rewrite stage rejects candidates that:
+
+- introduce new names
+- introduce new numbers
+- introduce new locations
+- have very low semantic overlap with the scrubbed source
+
+Expected result:
+
+- degraded inversion text is not accepted silently
+
+### Step 8: confirm deterministic fallback behavior
+
+Check that when generation quality collapses, the pipeline emits a structured fallback built from:
+
+- scrubbed text
+- public slots
+- deterministic labels such as:
+  - `Context`
+  - `Request`
+  - `Task`
+  - `Location`
+  - `Preferences`
+
+Expected result:
+
+- the final output remains usable and local, even when inversion quality is poor
+
+### Step 9: run local regression tests
+
+Run:
 
 ```bash
-cd "$REPO_PATH"
-rg -n "epsilon|delta|sigma|sensitivity|num_releases|chunk" "$ENTRY_FILE"
+python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-### Expected output
+If the repository does not include tests in this exact layout, adapt the command to the local test layout, but the minimum test coverage should include:
 
-- The accountant explicitly states that its scope is residual ambiguous content only.
-- Release count is bounded by a chunk cap instead of naive sentence explosion.
-
-## Step 6: Constrain local regeneration
-
-### Goal
-
-Keep local rewriting from inventing facts when inversion quality degrades.
-
-### Required implementation
-
-- Allow only local backends.
-- Tighten local prompts so they:
-  - preserve placeholders,
-  - do not add names,
-  - do not add numbers,
-  - do not add new locations,
-  - simplify degraded text instead of hallucinating.
-- Add rejector checks for:
-  - novel capitalized entities,
-  - novel numbers,
-  - low lexical overlap,
-  - obvious collapse patterns.
-
-### Commands
-
-```bash
-cd "$REPO_PATH"
-rg -n "paraphrase|rewrite|ollama|fallback|collapse|halluc" "$ENTRY_FILE"
-```
-
-### Expected output
-
-- Local rewrite is constrained.
-- Bad local generations are rejected instead of accepted.
-
-## Step 7: Add deterministic template fallback
-
-### Goal
-
-Produce a usable final output even when inversion or local rewriting quality is poor.
-
-### Required implementation
-
-- Build a deterministic renderer from:
-  - scrubbed local text,
-  - approved public slots,
-  - simple fixed labels such as `Context`, `Request`, `Task`, `Location`, `Preferences`
-- Trigger the fallback when the generated output collapses.
-
-### Expected output
-
-- The final output is always usable and locally generated.
-- The fallback does not invent facts.
-
-## Step 8: Make the CLI and output state the privacy scope clearly
-
-### Goal
-
-Expose the three layers directly in the runtime output.
-
-### Required implementation
-
-The CLI output should print:
-- deterministic pre-embedding scrub,
-- expanded removal targets,
-- preserved public keywords,
-- residual DP release units,
-- DP accountant scope,
-- final output source, either generated or deterministic fallback.
-
-### Expected output
-
-- A reviewer can tell exactly what was scrubbed, what was preserved, and what was covered by DP.
-
-## Step 9: Add regression tests
-
-### Goal
-
-Validate the three-layer behavior locally.
-
-### Required test cases
-
-- typed category removal such as `all names` and `age`
-- public keyword preservation
-- DP release count limiting
-- hallucination rejection
+- category-level pre-scrub expansion
+- privacy chunk limiting
+- rewrite hallucination rejection
 - deterministic fallback activation
 
-### Commands
+Expected result:
 
-```bash
-cd "$REPO_PATH"
-python3 -m unittest discover -s "$TEST_PATH" -p 'test_*.py' -v
-```
+- tests pass locally
 
-### Expected output
+## Acceptance criteria
 
-- Tests pass locally.
-- The three-layer behavior is covered by automated checks.
+This skill succeeds only if all of the following are true:
 
-## Step 10: Produce a final audit summary
+- the whole anonymization process remains local
+- Layer 1 deterministic scrub happens before embeddings
+- Layer 2 approved public slots are preserved outside DP
+- Layer 3 residual ambiguous content is the only DP-accounted mechanism
+- the accountant is reported explicitly
+- bad generated text is replaced by deterministic fallback output
 
-### Goal
+## Output audit summary
 
-Summarize whether the repository now satisfies the intended privacy architecture.
+After running the workflow, produce a final summary with these fields:
 
-### Required summary fields
+- `local_only`
+- `layer1_deterministic_scrub_before_embedding`
+- `layer2_public_slots_outside_dp`
+- `layer3_residual_only_dp_scope`
+- `dp_accounting_reported`
+- `deterministic_fallback_present`
+- `remaining_limitations`
 
-- `local_only`: `yes` or `no`
-- `layer1_deterministic_scrub_before_embedding`: `yes` or `no`
-- `layer2_public_slots_outside_dp`: `yes` or `no`
-- `layer3_residual_only_dp_scope`: `yes` or `no`
-- `dp_accounting_reported`: `yes` or `no`
-- `deterministic_fallback_present`: `yes` or `no`
-- `remaining_limitations`: short list
+## Limitations
 
-### Expected output
-
-- A concise machine-readable or bullet summary of the final state.
-
-## Acceptance Criteria
-
-The skill succeeds only if all of the following are true:
-
-- The anonymization process is fully local.
-- Explicit sensitive information is scrubbed before embeddings.
-- Approved public or utility-preserving slots are kept outside the DP mechanism.
-- DP accounting is reported only for ambiguous residual content.
-- Low-quality generated outputs are replaced by deterministic local fallback rendering.
-- Automated tests pass locally.
-
-## Notes for Claw Review
-
-- This skill is designed to be executed end-to-end on an existing anonymizer repository.
-- It is generalizable to other local privacy-preserving text preprocessing pipelines.
-- It prioritizes auditability over fluent but unverifiable rewriting.
+- This skill improves privacy architecture and auditability; it does not by itself prove a full end-to-end privacy theorem.
+- Quantitative privacy strength still depends on the configured noise scale, sensitivity assumption, and number of residual releases.
+- Deterministic scrub quality depends on the strength of the local rules.

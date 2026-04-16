@@ -1,0 +1,3 @@
+# Local Anonymizer Improvement
+
+This repository contains a submission-ready Claw-style skill for improving a fully local text anonymization pipeline into a three-layer privacy architecture: deterministic scrubbing for explicit sensitive information, deterministic preservation of approved public utility slots, and differential privacy accounting scoped only to ambiguous residual content. The main artifact is [SKILL.md](./SKILL.md), which gives an executable workflow for inspecting, patching, validating, and auditing a local anonymizer, while [main.py](./main.py) is the corresponding Python entrypoint and [research_note.md](./research_note.md) provides the short written rationale for the approach.
