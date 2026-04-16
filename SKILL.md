@@ -49,16 +49,49 @@ python3 -m py_compile main.py
 If you want to use the Ollama backend, do not assume Ollama is already installed, running, or
 bound to `http://127.0.0.1:11434`.
 
-Typical local setup flow:
+For a typical Linux machine, the primary setup flow is:
 
 ```bash
+curl -fsSL https://ollama.com/install.sh | sh
+ollama --version
 ollama serve
 ollama pull qwen3.5:latest
 curl -s http://127.0.0.1:11434/api/tags
 ```
 
-If the `ollama` command is missing, install Ollama for your local environment first. Then start
-the server and pull the model before running the full example.
+Do these in order:
+
+1. install Ollama
+2. verify the `ollama` binary exists
+3. start the Ollama server
+4. pull the required model
+5. verify the endpoint with `/api/tags`
+6. only then run the full skill example
+
+If the `ollama` command is missing, install Ollama first with:
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+If `ollama serve` is not already running in another terminal/session, start it before running the
+representative example. A normal Linux workflow is:
+
+```bash
+ollama serve
+```
+
+Then, in another shell:
+
+```bash
+ollama pull qwen3.5:latest
+curl -s http://127.0.0.1:11434/api/tags
+```
+
+Expected result from `/api/tags`:
+
+- the request succeeds
+- the returned model list includes `qwen3.5:latest`
 
 Use `http://127.0.0.1:11434` only if a local Ollama server is actually running there. If your
 environment uses a different local endpoint, start Ollama for that environment and pass the
@@ -80,7 +113,8 @@ pip install -r requirements.txt
 
 Do not replace these pinned versions with floating package names. The artifact contains a
 transformers monkey-patch that requires `transformers==4.37.2`, and the pinned set in
-`requirements.txt` is the tested environment for this skill.
+`requirements.txt` is the tested environment for this skill. In particular, `accelerate` is
+also pinned because newer 1.x releases can break the vec2text / transformers stack used here.
 
 ## Canonical entrypoint
 
@@ -127,6 +161,7 @@ Expected result:
 
 - the syntax smoke test passes
 - preflight reports the pinned package versions
+- preflight reports the pinned `accelerate` version as part of the compatibility contract
 - preflight prints the configured `--ollama-base-url`
 - preflight reports whether the `ollama` binary is installed locally
 - if Ollama is reachable at that configured endpoint, preflight reports:
@@ -166,6 +201,24 @@ Before the representative example, run preflight first and verify that the confi
 the full Ollama example if preflight confirms that the intended endpoint is available. If
 Ollama is unavailable, skip this example and use the smoke test plus code inspection as the
 local validation path.
+
+For a normal Linux machine, the intended Ollama-ready sequence is:
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+ollama serve
+```
+
+Then, from another shell:
+
+```bash
+ollama pull qwen3.5:latest
+curl -s http://127.0.0.1:11434/api/tags
+source .venv/bin/activate
+python3 main.py --preflight --llm-backend ollama --paraphrase-model "qwen3.5:latest"
+```
+
+Only after those succeed should you run the full example below.
 
 Run:
 

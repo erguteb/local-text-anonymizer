@@ -2195,10 +2195,12 @@ def main() -> None:
 
     args = build_arg_parser().parse_args()
     if args.preflight:
+        import accelerate
         import transformers
 
         print("python: ok")
         print("torch:", getattr(torch, "__version__", "unknown"))
+        print("accelerate:", getattr(accelerate, "__version__", "unknown"))
         print("transformers:", getattr(transformers, "__version__", "unknown"))
         print("vec2text:", getattr(vec2text, "__version__", "unknown"))
         print("ollama_base_url:", args.ollama_base_url)
@@ -2218,6 +2220,12 @@ def main() -> None:
                 "Unsupported transformers version "
                 f"{getattr(transformers, '__version__', 'unknown')}. "
                 f"Expected {REQUIRED_TRANSFORMERS_VERSION}."
+            )
+        if getattr(accelerate, "__version__", None) != "0.26.1":
+            raise RuntimeError(
+                "Unsupported accelerate version "
+                f"{getattr(accelerate, '__version__', 'unknown')}. "
+                "Expected 0.26.1 for compatibility with transformers==4.37.2 and vec2text==0.0.13."
             )
         if args.llm_backend == "ollama":
             try:
