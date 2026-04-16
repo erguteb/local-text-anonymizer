@@ -1,0 +1,4 @@
+torch==2.5.1
+transformers==4.37.2
+sentence-transformers==2.7.0
+vec2text==0.0.13

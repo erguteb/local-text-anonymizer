@@ -561,6 +561,9 @@ def estimate_metric_dp_privacy_cost(
 # =========================
 
 
+REQUIRED_TRANSFORMERS_VERSION = "4.37.2"
+
+
 def patch_transformers_constrained_beamsearch_4372() -> None:
     """
     Patch transformers constrained beam-search finalize() for 4.37.2.
@@ -571,18 +574,21 @@ def patch_transformers_constrained_beamsearch_4372() -> None:
     when some hypotheses have `best_idx=None`.
     """
 
-    import transformers
     from collections import UserDict
+    import transformers
+
+    if transformers.__version__ != REQUIRED_TRANSFORMERS_VERSION:
+        raise RuntimeError(
+            "Unsupported transformers version "
+            f"{transformers.__version__}. This artifact requires "
+            f"transformers=={REQUIRED_TRANSFORMERS_VERSION}. "
+            "Install the pinned versions from requirements.txt before running the pipeline."
+        )
+
     from transformers.generation.beam_search import ConstrainedBeamSearchScorer
 
     if getattr(ConstrainedBeamSearchScorer.finalize, "_vec2text_patched", False):
         return
-
-    if transformers.__version__ != "4.37.2":
-        print(
-            f"[patch] Warning: transformers=={transformers.__version__}. "
-            "Patch was written for 4.37.2."
-        )
 
     def finalize_patched(
         self,
@@ -1883,7 +1889,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
 
     # Layer 2 controls (least-sensitive information user allows to guide inversion)
-    parser.add_argument("-t", "--text", type=str, required=True, help="Private text input.")
+    parser.add_argument("-t", "--text", type=str, required=False, help="Private text input.")
     parser.add_argument(
         "-k",
         "--keywords",
@@ -2054,6 +2060,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     # Performance flags
     parser.add_argument(
+        "--preflight",
+        action="store_true",
+        default=False,
+        help=(
+            "Run lightweight local environment checks and exit. "
+            "Checks pinned package versions and optional Ollama reachability."
+        ),
+    )
+    parser.add_argument(
         "--skip-baseline",
         action="store_true",
         default=False,
@@ -2089,6 +2104,37 @@ def main() -> None:
     """Execute full anonymize -> paraphrase workflow."""
 
     args = build_arg_parser().parse_args()
+    if args.preflight:
+        import transformers
+
+        print("python: ok")
+        print("torch:", getattr(torch, "__version__", "unknown"))
+        print("transformers:", getattr(transformers, "__version__", "unknown"))
+        print("vec2text:", getattr(vec2text, "__version__", "unknown"))
+        if getattr(transformers, "__version__", None) != REQUIRED_TRANSFORMERS_VERSION:
+            raise RuntimeError(
+                "Unsupported transformers version "
+                f"{getattr(transformers, '__version__', 'unknown')}. "
+                f"Expected {REQUIRED_TRANSFORMERS_VERSION}."
+            )
+        if args.llm_backend == "ollama":
+            try:
+                tags = ollama_generate(
+                    base_url=args.ollama_base_url,
+                    model=args.paraphrase_model,
+                    prompt="ping",
+                    num_predict=1,
+                    temperature=0.0,
+                    timeout_sec=5.0,
+                )
+                print("ollama: reachable")
+                print("ollama_model_probe:", tags[:80])
+            except Exception as exc:  # noqa: BLE001
+                print("ollama: unavailable")
+                print(f"ollama_error: {exc}")
+        return
+    if not args.text:
+        raise SystemExit("main.py: error: the following arguments are required: -t/--text")
     if args.fast:
         args.skip_baseline = True
         args.joint_opt_steps = min(args.joint_opt_steps, 40)

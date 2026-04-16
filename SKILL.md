@@ -19,6 +19,7 @@ This skill is designed for repositories that already contain a local anonymizer 
 
 - `main.py`: the Python implementation corresponding to this skill
 - `SKILL.md`: this execution guide
+- `requirements.txt`: tested dependency versions for this artifact
 
 ## Source repository
 
@@ -33,7 +34,7 @@ If this skill is evaluated from a fresh environment, clone the repository first 
 git clone https://github.com/erguteb/local-text-anonymizer
 cd local-text-anonymizer
 git checkout fefbdc65f27523fe0c7adc9ef1a770f5e54c8063
-python3 main.py --help
+python3 -m py_compile main.py
 ```
 
 ## Required runtime assumptions
@@ -51,10 +52,12 @@ Create a local Python environment and install the required dependencies before r
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
-pip install torch transformers vec2text
+pip install -r requirements.txt
 ```
 
-If the local environment already provides these packages, this step may be skipped.
+Do not replace these pinned versions with floating package names. The artifact contains a
+transformers monkey-patch that requires `transformers==4.37.2`, and the pinned set in
+`requirements.txt` is the tested environment for this skill.
 
 ## Canonical entrypoint
 
@@ -65,6 +68,13 @@ python3 main.py --help
 ```
 
 The skill assumes `main.py` is the artifact entrypoint unless you intentionally rename it and update this file.
+The guaranteed local smoke test is:
+
+```bash
+python3 -m py_compile main.py
+```
+
+This smoke test does not require Ollama or model downloads.
 
 ## What the code should do
 
@@ -85,11 +95,16 @@ Run:
 
 ```bash
 source .venv/bin/activate
+python3 -m py_compile main.py
+python3 main.py --preflight --llm-backend ollama --paraphrase-model "qwen3.5:latest"
 python3 main.py --help
 ```
 
 Expected result:
 
+- the syntax smoke test passes
+- preflight reports the pinned package versions
+- if Ollama is reachable, preflight reports that the local server is available
 - the CLI loads successfully
 - the runtime flags include privacy controls such as:
   - `--remove-info`
@@ -116,6 +131,10 @@ Expected result:
 - Layer 3 is the only DP-accounted mechanism
 
 ### Step 3: run a representative local example
+
+Before the representative example, verify that the Ollama server is reachable and that the
+requested model is available locally. If Ollama is unavailable, skip this example and use the
+smoke test plus code inspection as the local validation path.
 
 Run:
 
@@ -228,6 +247,7 @@ Run:
 
 ```bash
 source .venv/bin/activate
+python3 -m py_compile main.py
 python3 main.py --help
 ```
 
@@ -248,6 +268,7 @@ At minimum, the artifact should be validated against:
 Expected result:
 
 - the CLI loads locally without import errors
+- the pinned dependency environment is consistent with the artifact
 - if tests are present, they pass locally
 
 ## Acceptance criteria
@@ -278,3 +299,4 @@ After running the workflow, produce a final summary with these fields:
 - This skill improves privacy architecture and auditability; it does not by itself prove a full end-to-end privacy theorem.
 - Quantitative privacy strength still depends on the configured noise scale, sensitivity assumption, and number of residual releases.
 - Deterministic scrub quality depends on the strength of the local rules.
+- The representative example requires a reachable local Ollama server and a locally available model.
