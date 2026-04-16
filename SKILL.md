@@ -41,8 +41,28 @@ python3 -m py_compile main.py
 
 - Python 3 is installed.
 - The skill runs locally only.
-- If Ollama is used, a local Ollama server is running and the chosen model is already available.
+- If Ollama is used, a compatible local Ollama server is running at the configured endpoint and the chosen model is already available.
 - No commercial LLM service is used at any point in the anonymization flow.
+
+## Ollama setup
+
+If you want to use the Ollama backend, do not assume Ollama is already installed, running, or
+bound to `http://127.0.0.1:11434`.
+
+Typical local setup flow:
+
+```bash
+ollama serve
+ollama pull qwen3.5:latest
+curl -s http://127.0.0.1:11434/api/tags
+```
+
+Use `http://127.0.0.1:11434` only if a local Ollama server is actually running there. If your
+environment uses a different local endpoint, start Ollama for that environment and pass the
+correct value via `--ollama-base-url`.
+
+If Ollama is unavailable in your environment, use the smoke test and preflight path and treat
+the full Ollama example as optional.
 
 ## Environment setup
 
@@ -104,7 +124,12 @@ Expected result:
 
 - the syntax smoke test passes
 - preflight reports the pinned package versions
-- if Ollama is reachable, preflight reports that the local server is available
+- preflight prints the configured `--ollama-base-url`
+- if Ollama is reachable at that configured endpoint, preflight reports:
+  - endpoint reachable
+  - locally available models
+  - whether the requested model is present or missing
+- if the requested model is missing, preflight tells the agent to run `ollama pull <model>`
 - the CLI loads successfully
 - the runtime flags include privacy controls such as:
   - `--remove-info`
@@ -132,9 +157,11 @@ Expected result:
 
 ### Step 3: run a representative local example
 
-Before the representative example, verify that the Ollama server is reachable and that the
-requested model is available locally. If Ollama is unavailable, skip this example and use the
-smoke test plus code inspection as the local validation path.
+Before the representative example, run preflight first and verify that the configured
+`--ollama-base-url` is reachable and that the requested model is available locally. Only run
+the full Ollama example if preflight confirms that the intended endpoint is available. If
+Ollama is unavailable, skip this example and use the smoke test plus code inspection as the
+local validation path.
 
 Run:
 
@@ -152,6 +179,18 @@ python3 main.py \
   --skip-baseline \
   --no-interactive-removal
 ```
+
+Use `http://127.0.0.1:11434` only if a local Ollama server is actually running there. If your
+environment exposes Ollama on a different local endpoint, pass that endpoint via
+`--ollama-base-url`.
+
+If preflight says the endpoint is reachable but the model is missing, pull the model first:
+
+```bash
+ollama pull qwen3.5:latest
+```
+
+Then rerun preflight before the full example.
 
 Expected result:
 
@@ -259,7 +298,7 @@ python3 -m py_compile main.py
 python3 main.py --help
 ```
 
-If the repository later includes a `tests/` directory, the preferred regression command is:
+The preferred regression command is:
 
 ```bash
 source .venv/bin/activate
@@ -308,3 +347,4 @@ After running the workflow, produce a final summary with these fields:
 - Quantitative privacy strength still depends on the configured noise scale, sensitivity assumption, and number of residual releases.
 - Deterministic scrub quality depends on the strength of the local rules.
 - The representative example requires a reachable local Ollama server and a locally available model.
+- `http://127.0.0.1:11434` is only the default local Ollama endpoint example; other local environments may require a different `--ollama-base-url`.

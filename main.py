@@ -562,6 +562,7 @@ def estimate_metric_dp_privacy_cost(
 
 
 REQUIRED_TRANSFORMERS_VERSION = "4.37.2"
+DEFAULT_LOCAL_OLLAMA_ENDPOINT = "http://127.0.0.1:11434"
 
 
 def patch_transformers_constrained_beamsearch_4372() -> None:
@@ -700,6 +701,16 @@ def patch_transformers_constrained_beamsearch_4372() -> None:
     finalize_patched._vec2text_patched = True
     ConstrainedBeamSearchScorer.finalize = finalize_patched
     print("[patch] Patched ConstrainedBeamSearchScorer.finalize() for transformers 4.37.2.")
+
+
+def format_ollama_endpoint_guidance(base_url: str) -> str:
+    """Return consistent user-facing guidance for Ollama endpoint failures."""
+
+    return (
+        f"Failed to reach Ollama at {base_url}. "
+        f"{DEFAULT_LOCAL_OLLAMA_ENDPOINT} is only correct if a local Ollama server is running there. "
+        "If your runtime uses a different local endpoint, pass --ollama-base-url with the correct value."
+    )
 
 
 def load_vec2text_corrector(
@@ -1160,7 +1171,8 @@ def ollama_generate(
     """
     Call a local Ollama server HTTP API (/api/generate).
 
-    Requires Ollama running (e.g. `ollama serve`) and the model pulled (`ollama pull <model>`).
+    Requires Ollama running (e.g. `ollama serve`) at the configured endpoint and the model
+    pulled (`ollama pull <model>`).
     """
 
     url = base_url.rstrip("/") + "/api/generate"
@@ -1185,10 +1197,38 @@ def ollama_generate(
             body = json.loads(response.read().decode("utf-8"))
     except urllib.error.URLError as exc:
         raise RuntimeError(
-            f"Ollama request failed ({url}). Is Ollama running? Error: {exc}"
+            f"{format_ollama_endpoint_guidance(base_url)} "
+            f"Configured request URL: {url}. Underlying error: {exc}"
         ) from exc
 
     return str(body.get("response", "")).strip()
+
+
+def ollama_list_models(
+    *,
+    base_url: str,
+    timeout_sec: float = 10.0,
+) -> List[str]:
+    """List locally available Ollama model names from the configured endpoint."""
+
+    url = base_url.rstrip("/") + "/api/tags"
+    request = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_sec) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.URLError as exc:
+        raise RuntimeError(
+            f"{format_ollama_endpoint_guidance(base_url)} "
+            f"Configured request URL: {url}. Underlying error: {exc}"
+        ) from exc
+
+    models = body.get("models", [])
+    names: List[str] = []
+    if isinstance(models, list):
+        for model in models:
+            if isinstance(model, dict) and isinstance(model.get("name"), str):
+                names.append(model["name"])
+    return names
 
 
 def paraphrase_with_ollama(
@@ -1686,7 +1726,7 @@ def paraphrase_with_open_source_llm(
     cache_dir: Optional[str] = None,
     keywords: Optional[List[str]] = None,
     llm_backend: str = "hf",
-    ollama_base_url: str = "http://127.0.0.1:11434",
+    ollama_base_url: str = DEFAULT_LOCAL_OLLAMA_ENDPOINT,
 ) -> ParaphraseResult:
     """
     Paraphrase anonymized text with an open-source model.
@@ -1786,7 +1826,7 @@ def remove_information_with_open_source_llm(
     keywords: Optional[List[str]] = None,
     removal_method: str = "literal",
     llm_backend: str = "hf",
-    ollama_base_url: str = "http://127.0.0.1:11434",
+    ollama_base_url: str = DEFAULT_LOCAL_OLLAMA_ENDPOINT,
 ) -> ParaphraseResult:
     """
     Remove user-specified information from already-paraphrased text and regenerate output.
@@ -2072,8 +2112,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--ollama-base-url",
         type=str,
-        default="http://127.0.0.1:11434",
-        help="Ollama API base URL (used when --llm-backend ollama).",
+        default=DEFAULT_LOCAL_OLLAMA_ENDPOINT,
+        help=(
+            "Ollama API base URL (used when --llm-backend ollama). "
+            "Default local Ollama endpoint: http://127.0.0.1:11434."
+        ),
     )
     parser.add_argument(
         "--remove-info",
@@ -2157,6 +2200,7 @@ def main() -> None:
         print("torch:", getattr(torch, "__version__", "unknown"))
         print("transformers:", getattr(transformers, "__version__", "unknown"))
         print("vec2text:", getattr(vec2text, "__version__", "unknown"))
+        print("ollama_base_url:", args.ollama_base_url)
         if getattr(transformers, "__version__", None) != REQUIRED_TRANSFORMERS_VERSION:
             raise RuntimeError(
                 "Unsupported transformers version "
@@ -2165,19 +2209,28 @@ def main() -> None:
             )
         if args.llm_backend == "ollama":
             try:
-                tags = ollama_generate(
+                model_names = ollama_list_models(
                     base_url=args.ollama_base_url,
-                    model=args.paraphrase_model,
-                    prompt="ping",
-                    num_predict=1,
-                    temperature=0.0,
                     timeout_sec=5.0,
                 )
-                print("ollama: reachable")
-                print("ollama_model_probe:", tags[:80])
+                print("ollama_endpoint: reachable")
+                print("ollama_models:", ", ".join(model_names) if model_names else "(none)")
+                if args.paraphrase_model in model_names:
+                    print("ollama_model_status: present")
+                else:
+                    print("ollama_model_status: missing")
+                    print(
+                        "ollama_setup_hint: start the Ollama server for your environment, "
+                        f"then run `ollama pull {args.paraphrase_model}` against the configured endpoint."
+                    )
             except Exception as exc:  # noqa: BLE001
-                print("ollama: unavailable")
+                print("ollama_endpoint: unavailable")
                 print(f"ollama_error: {exc}")
+                print(
+                    "ollama_setup_hint: if you intend to use Ollama, start it at the correct local "
+                    "endpoint for your environment and pass that endpoint via --ollama-base-url. "
+                    f"Then pull the model with `ollama pull {args.paraphrase_model}`."
+                )
         return
     if not args.text:
         raise SystemExit("main.py: error: the following arguments are required: -t/--text")
