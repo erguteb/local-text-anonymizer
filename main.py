@@ -390,6 +390,40 @@ def strip_safe_slot_placeholders(text: str) -> str:
     return normalize_whitespace(cleaned)
 
 
+def restore_safe_slot_placeholders(
+    text: str,
+    *,
+    safe_task_keywords: Sequence[str],
+    safe_location_keywords: Sequence[str],
+    safe_preference_keywords: Sequence[str],
+) -> str:
+    """Restore safe-slot placeholders using canonical preserved values."""
+
+    restored = text
+    task_value = safe_task_keywords[0] if safe_task_keywords else ""
+    preference_value = safe_preference_keywords[0] if safe_preference_keywords else ""
+    location_value = ""
+    if safe_location_keywords:
+        generic_locations = {"uk", "u.k.", "england"}
+        specific_locations = [
+            value for value in safe_location_keywords if value.strip().lower() not in generic_locations
+        ]
+        location_value = (specific_locations or list(safe_location_keywords))[0]
+    replacements = {
+        "[SAFE_TASK]": task_value,
+        "[SAFE_LOCATION]": location_value,
+        "[SAFE_PREFERENCE]": preference_value,
+    }
+    for placeholder, value in replacements.items():
+        if value:
+            restored = restored.replace(placeholder, value)
+        else:
+            restored = restored.replace(placeholder, "")
+    restored = re.sub(r"\s+([,.;:!?])", r"\1", restored)
+    restored = re.sub(r"\b(a)\s+([aeiouAEIOU])", r"an \2", restored)
+    return normalize_whitespace(restored)
+
+
 def redact_preserved_keywords_from_residual(text: str, keywords: Sequence[str]) -> str:
     """
     Replace explicitly allowed public keywords with stable placeholders.
@@ -1557,8 +1591,11 @@ def build_template_fallback_output(
     """
 
     del keywords
-    summary_text = strip_safe_slot_placeholders(
-        residual_summary if residual_summary is not None else preprocessed.scrubbed_text
+    summary_text = restore_safe_slot_placeholders(
+        residual_summary if residual_summary is not None else preprocessed.scrubbed_text,
+        safe_task_keywords=preprocessed.safe_task_keywords,
+        safe_location_keywords=preprocessed.safe_location_keywords,
+        safe_preference_keywords=preprocessed.safe_preference_keywords,
     )
     sentences = split_sentences_by_period(summary_text)
     context_sentence = sentences[0].strip() if sentences else ""
