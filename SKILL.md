@@ -25,12 +25,14 @@ This skill is designed for repositories that already contain a local anonymizer 
 The corresponding public repository is:
 
 - `REPO_URL=https://github.com/erguteb/local-text-anonymizer`
+- `REPO_COMMIT=fefbdc65f27523fe0c7adc9ef1a770f5e54c8063`
 
 If this skill is evaluated from a fresh environment, clone the repository first and then run the bundled or repository `main.py`.
 
 ```bash
 git clone https://github.com/erguteb/local-text-anonymizer
 cd local-text-anonymizer
+git checkout fefbdc65f27523fe0c7adc9ef1a770f5e54c8063
 python3 main.py --help
 ```
 
@@ -40,6 +42,19 @@ python3 main.py --help
 - The skill runs locally only.
 - If Ollama is used, a local Ollama server is running and the chosen model is already available.
 - No commercial LLM service is used at any point in the anonymization flow.
+
+## Environment setup
+
+Create a local Python environment and install the required dependencies before running the artifact.
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install torch transformers vec2text
+```
+
+If the local environment already provides these packages, this step may be skipped.
 
 ## Canonical entrypoint
 
@@ -69,6 +84,7 @@ The final pipeline must satisfy all of the following:
 Run:
 
 ```bash
+source .venv/bin/activate
 python3 main.py --help
 ```
 
@@ -104,6 +120,7 @@ Expected result:
 Run:
 
 ```bash
+source .venv/bin/activate
 python3 main.py \
   --text "I’m 23, just moved to London for work, and my flat in Shoreditch feels empty after a breakup. I want a cozy restaurant tonight where dining alone feels comfortable." \
   --keywords "restaurant, UK, London, cozy, solo dining" \
@@ -210,10 +227,18 @@ Expected result:
 Run:
 
 ```bash
+source .venv/bin/activate
+python3 main.py --help
+```
+
+If the repository later includes a `tests/` directory, the preferred regression command is:
+
+```bash
+source .venv/bin/activate
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-If the repository does not include tests in this exact layout, adapt the command to the local test layout, but the minimum test coverage should include:
+At minimum, the artifact should be validated against:
 
 - category-level pre-scrub expansion
 - privacy chunk limiting
@@ -222,7 +247,8 @@ If the repository does not include tests in this exact layout, adapt the command
 
 Expected result:
 
-- tests pass locally
+- the CLI loads locally without import errors
+- if tests are present, they pass locally
 
 ## Acceptance criteria
 
