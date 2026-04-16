@@ -83,8 +83,8 @@ The final pipeline must satisfy all of the following:
 - explicit sensitive information is scrubbed before embeddings
 - approved public keywords are preserved outside the DP mechanism
 - only ambiguous residual content is counted by the DP accountant
-- local rewriting is constrained to avoid invented names, numbers, and locations
-- low-quality generated text falls back to a deterministic local template
+- local rewriting is constrained to avoid invented names, numbers, and location-like content
+- low-quality generated text first falls back to a residual summary and then to structured final rendering
 - the runtime output explicitly states the DP scope
 
 ## Execution workflow
@@ -160,7 +160,9 @@ Expected result:
 - the output prints preserved public keywords
 - the output prints residual DP release units
 - the output prints a DP accountant with scope restricted to residual ambiguous content only
-- if generation quality collapses, the final output is replaced by a deterministic template fallback
+- if generation quality collapses, the pipeline emits:
+  - a residual summary fallback output
+  - a structured final output built from the preserved public slots
 
 ### Step 4: confirm Layer 1 behavior
 
@@ -172,6 +174,7 @@ Look for a preprocessing stage that:
   - `[AGE]`
   - `[ORG]`
   - `[LOCATION]`
+- may generalize literal location targets into plain-language placeholders such as `somewhere`
 - produces a scrubbed text before embedding
 
 Expected result:
@@ -217,7 +220,7 @@ Check that the local rewrite stage rejects candidates that:
 
 - introduce new names
 - introduce new numbers
-- introduce new locations
+- introduce new locations or other location-like terms
 - have very low semantic overlap with the scrubbed source
 
 Expected result:
@@ -226,7 +229,12 @@ Expected result:
 
 ### Step 8: confirm deterministic fallback behavior
 
-Check that when generation quality collapses, the pipeline emits a structured fallback built from:
+Check that when generation quality collapses, the pipeline emits a two-stage fallback:
+
+1. a residual summary fallback that stays close to the scrubbed residual text
+2. a structured final rendering built from the residual summary plus the preserved public slots
+
+The structured rendering should contain:
 
 - scrubbed text
 - public slots
@@ -258,7 +266,7 @@ source .venv/bin/activate
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-At minimum, the artifact should be validated against:
+The included public tests should validate at minimum:
 
 - category-level pre-scrub expansion
 - privacy chunk limiting
@@ -269,7 +277,7 @@ Expected result:
 
 - the CLI loads locally without import errors
 - the pinned dependency environment is consistent with the artifact
-- if tests are present, they pass locally
+- the public tests pass locally
 
 ## Acceptance criteria
 

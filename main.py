@@ -1355,6 +1355,48 @@ def has_unapproved_capitalized_entities(
     return any(token not in allowed for token in candidate_tokens)
 
 
+def has_unapproved_location_content(
+    source_text: str,
+    candidate_text: str,
+    keywords: Optional[Sequence[str]] = None,
+) -> bool:
+    """
+    Reject rewrites that introduce new location-like words or phrases.
+
+    This complements the capitalized-entity check with explicit geography-ish
+    terms, including lowercase generic location words.
+    """
+
+    source_lower = source_text.lower()
+    allowed_lower = {keyword.lower() for keyword in keywords or []}
+    location_terms = {
+        "london",
+        "uk",
+        "england",
+        "shoreditch",
+        "city",
+        "town",
+        "village",
+        "district",
+        "street",
+        "road",
+        "avenue",
+        "flat",
+        "apartment",
+        "neighborhood",
+        "neighbourhood",
+        "country",
+        "state",
+        "somewhere",
+    }
+    for term in location_terms:
+        if term in allowed_lower or term in source_lower:
+            continue
+        if re.search(rf"\b{re.escape(term)}\b", candidate_text, flags=re.IGNORECASE):
+            return True
+    return False
+
+
 def leaks_removal_targets(text: str, removal_targets: Sequence[str]) -> bool:
     """Check whether requested removals still appear after a rewrite/removal pass."""
 
@@ -1380,6 +1422,8 @@ def violates_local_rewrite_constraints(
     if has_unapproved_numeric_content(source_text, candidate_text, keywords):
         return True
     if has_unapproved_capitalized_entities(source_text, candidate_text, keywords):
+        return True
+    if has_unapproved_location_content(source_text, candidate_text, keywords):
         return True
     return False
 
@@ -1492,10 +1536,12 @@ def generate_paraphrase_once(
 
 def render_fallback_summary(text: str, keywords: Optional[Sequence[str]] = None) -> str:
     """
-    Deterministic fallback when local generation is degraded.
+    Stage 1 fallback when local generation is degraded.
 
     This intentionally avoids inventing new details; it just normalizes the
-    scrubbed text into a short stable summary.
+    residual scrubbed text into a short stable summary. A later structured
+    renderer turns this summary plus the preserved public slots into the final
+    output.
     """
 
     cleaned = normalize_whitespace(text)
