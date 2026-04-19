@@ -2,9 +2,17 @@
 
 ## Purpose
 
-This skill upgrades a local text anonymization pipeline into a stricter three-layer privacy architecture and validates that the resulting system remains fully local.
+This skill implements and validates a fully local three-layer text anonymization workflow for free-form user prompts. It is self-contained: the skill defines the privacy model, the execution path, the expected runtime behavior, and the verification steps for the bundled `main.py`.
 
-The target architecture is:
+The skill’s job is to run a local anonymization pipeline that:
+
+1. deterministically scrubs explicit sensitive spans before any embedding step
+2. preserves approved public or utility-critical slots outside the privacy mechanism
+3. applies DP-style perturbation and explicit privacy accounting only to the ambiguous residual content
+4. uses only local models and local services
+5. produces a stable final output even when free-form generation quality collapses
+
+The privacy architecture is:
 
 1. **Layer 1: deterministic scrub before embeddings**
    Remove or generalize explicit sensitive information locally before any embedding or generation step.
@@ -13,7 +21,52 @@ The target architecture is:
 3. **Layer 3: DP protection for ambiguous residual content**
    Apply embedding perturbation and privacy accounting only to the residual ambiguous content.
 
-This skill is designed for repositories that already contain a local anonymizer and need to be hardened rather than rewritten from scratch.
+## What This Skill Does
+
+This skill is not just a test wrapper. It defines how to execute `main.py` as a local privacy pipeline and how to interpret its stages.
+
+At runtime, `main.py` does the following:
+
+1. reads the private input text from `--text`
+2. reads approved public slots from `--keywords`
+3. reads explicit sensitive removals from `--remove-info`
+4. performs deterministic pre-embedding scrub
+5. preserves approved public slots separately from the DP mechanism
+6. perturbs only the residual ambiguous text representation and reports DP accounting for that scope
+7. locally reconstructs and rewrites the residual text
+8. if generation quality is poor, falls back to a residual summary and then to a guarded structured renderer
+
+This means the skill is both:
+
+- an executable artifact: it tells the agent exactly how to run the code
+- a method definition: it tells the agent what privacy behavior the code is supposed to implement
+
+## How Public and Private Information Are Combined
+
+The skill uses a deliberate separation between private and public information.
+
+- Private information:
+  - the original user text passed through `--text`
+  - explicit sensitive spans that should be removed or generalized
+  - ambiguous residual narrative content that is protected by the DP-accounted mechanism
+- Public or approved information:
+  - keywords passed through `--keywords`
+  - utility-preserving slots such as broad location, task type, or preference style
+
+The code does **not** simply mix public and private text together and then anonymize everything at once.
+
+Instead it does this:
+
+1. scrub explicit sensitive content from the private text
+2. redact approved public slots out of the residual text so they are not privatized unnecessarily
+3. apply the DP-accounted embedding perturbation only to the remaining residual content
+4. restore approved public slots later in the final rendering
+5. allow only guarded fusion of safe generated fragments into `Context` and `Request`
+6. return both:
+   - a structured output without public-information fusion
+   - a structured output with approved public-information fusion
+
+`Task`, `Location`, and `Preferences` remain slot-driven and deterministic. This is the core reason the skill can preserve utility while keeping the privacy scope explicit.
 
 ## Included files
 
@@ -133,7 +186,7 @@ python3 -m py_compile main.py
 
 This smoke test does not require Ollama or model downloads.
 
-## What the code should do
+## What `main.py` Must Implement
 
 The final pipeline must satisfy all of the following:
 
@@ -141,8 +194,15 @@ The final pipeline must satisfy all of the following:
 - approved public keywords are preserved outside the DP mechanism
 - only ambiguous residual content is counted by the DP accountant
 - local rewriting is constrained to avoid invented names, numbers, and location-like content
-- low-quality generated text first falls back to a residual summary and then to structured final rendering
+- low-quality generated text first falls back to a residual summary, then optionally through guarded fusion, and finally to two structured outputs: one without public fusion and one with public fusion
 - the runtime output explicitly states the DP scope
+
+In other words, `main.py` is the implementation of the skill’s algorithm, not an unrelated helper script. The skill definition and `main.py` should agree on:
+
+- what counts as private input
+- what counts as approved public data
+- where the DP accountant applies
+- how the final rendered output is assembled
 
 ## Execution workflow
 
@@ -272,7 +332,8 @@ Expected result:
 - the three privacy layers remain intact in fast mode; only runtime-heavy local evaluation work is reduced
 - if generation quality collapses, the pipeline emits:
   - a residual summary fallback output
-  - a fusion-guarded structured final output built from the preserved public slots
+  - a structured final output without public fusion
+  - a fusion-guarded structured final output with public fusion
 - the output prints a stage timing summary so the reviewer can see where runtime is spent
 
 ### Step 3b: run the full heavyweight example only if needed
@@ -350,7 +411,8 @@ Check that when generation quality collapses, the pipeline emits:
 
 1. a residual summary fallback that stays close to the scrubbed residual text
 2. a guarded fusion step that may reuse only safe grounded fragments from the generated text
-3. a structured final rendering built from the residual summary plus the preserved public slots
+3. a structured final rendering without public-slot fusion
+4. a structured final rendering with approved public-slot fusion
 
 The structured rendering should contain:
 
@@ -368,6 +430,7 @@ Expected result:
 - the final output remains usable and local, even when inversion quality is poor
 - `Task`, `Location`, and `Preferences` remain deterministic and slot-driven
 - `Context` and `Request` may be lightly enriched only when candidate fragments survive local safety and grounding checks
+- the runtime exposes both variants so the agent can compare residual-only rendering against public-slot-fused rendering
 
 ### Step 9: run local regression tests
 

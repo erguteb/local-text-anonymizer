@@ -1713,20 +1713,8 @@ def select_safe_fusion_candidates(
     reuse short candidate sentences when they stay close to the scrubbed source.
     """
 
-    del residual_summary
-    restored_candidate = restore_safe_slot_placeholders(
-        candidate_text,
-        safe_task_keywords=preprocessed.safe_task_keywords,
-        safe_location_keywords=preprocessed.safe_location_keywords,
-        safe_preference_keywords=preprocessed.safe_preference_keywords,
-    )
-    restored_source = restore_safe_slot_placeholders(
-        source_text,
-        safe_task_keywords=preprocessed.safe_task_keywords,
-        safe_location_keywords=preprocessed.safe_location_keywords,
-        safe_preference_keywords=preprocessed.safe_preference_keywords,
-    )
-    candidates = split_sentences_by_period(restored_candidate)
+    del residual_summary, preprocessed
+    candidates = split_sentences_by_period(candidate_text)
     accepted: List[str] = []
     for sentence in candidates:
         cleaned = normalize_whitespace(sentence)
@@ -1738,13 +1726,13 @@ def select_safe_fusion_candidates(
             continue
         if ".." in cleaned or ";;" in cleaned or "''" in cleaned:
             continue
-        if has_unapproved_numeric_content(restored_source, cleaned, keywords):
+        if has_unapproved_numeric_content(source_text, cleaned, keywords):
             continue
-        if has_unapproved_capitalized_entities(restored_source, cleaned, keywords):
+        if has_unapproved_capitalized_entities(source_text, cleaned, keywords):
             continue
-        if has_unapproved_location_content(restored_source, cleaned, keywords):
+        if has_unapproved_location_content(source_text, cleaned, keywords):
             continue
-        if lexical_overlap_ratio(restored_source, cleaned) < 0.30:
+        if lexical_overlap_ratio(source_text, cleaned) < 0.30:
             continue
         accepted.append(cleaned)
     return accepted
@@ -1787,12 +1775,33 @@ def choose_fused_context_and_request(
     return context_sentence, request_sentence
 
 
+def prepare_text_for_structured_output(
+    text: str,
+    *,
+    preprocessed: PreprocessedPrivacyText,
+    include_public_fusion: bool,
+) -> str:
+    """Prepare summary/candidate text for residual-only or public-fused rendering."""
+
+    if include_public_fusion:
+        return restore_safe_slot_placeholders(
+            text,
+            safe_task_keywords=preprocessed.safe_task_keywords,
+            safe_location_keywords=preprocessed.safe_location_keywords,
+            safe_preference_keywords=preprocessed.safe_preference_keywords,
+        )
+
+    redacted = redact_preserved_keywords_from_residual(text, preprocessed.preserved_keywords)
+    return strip_safe_slot_placeholders(redacted)
+
+
 def build_fused_fallback_output(
     *,
     preprocessed: PreprocessedPrivacyText,
     keywords: Sequence[str],
     residual_summary: str,
     candidate_text: Optional[str] = None,
+    include_public_fusion: bool = True,
 ) -> str:
     """
     Build the final structured output with guarded optional enrichment.
@@ -1802,18 +1811,22 @@ def build_fused_fallback_output(
     rewrite, overlap, and punctuation checks.
     """
 
-    summary_text = restore_safe_slot_placeholders(
+    summary_text = prepare_text_for_structured_output(
         residual_summary,
-        safe_task_keywords=preprocessed.safe_task_keywords,
-        safe_location_keywords=preprocessed.safe_location_keywords,
-        safe_preference_keywords=preprocessed.safe_preference_keywords,
+        preprocessed=preprocessed,
+        include_public_fusion=include_public_fusion,
     )
     accepted_candidates: List[str] = []
     if candidate_text:
+        candidate_render_text = prepare_text_for_structured_output(
+            candidate_text,
+            preprocessed=preprocessed,
+            include_public_fusion=include_public_fusion,
+        )
         accepted_candidates = select_safe_fusion_candidates(
-            source_text=preprocessed.residual_text,
+            source_text=summary_text,
             residual_summary=summary_text,
-            candidate_text=candidate_text,
+            candidate_text=candidate_render_text,
             keywords=keywords,
             preprocessed=preprocessed,
         )
@@ -1828,11 +1841,11 @@ def build_fused_fallback_output(
         parts.append(f"Context: {context_sentence}")
     if request_sentence:
         parts.append(f"Request: {request_sentence}")
-    if preprocessed.safe_task_keywords:
+    if include_public_fusion and preprocessed.safe_task_keywords:
         parts.append("Task: " + ", ".join(preprocessed.safe_task_keywords))
-    if preprocessed.safe_location_keywords:
+    if include_public_fusion and preprocessed.safe_location_keywords:
         parts.append("Location: " + ", ".join(preprocessed.safe_location_keywords))
-    if preprocessed.safe_preference_keywords:
+    if include_public_fusion and preprocessed.safe_preference_keywords:
         parts.append("Preferences: " + ", ".join(preprocessed.safe_preference_keywords))
 
     if not parts:
@@ -2666,20 +2679,30 @@ def main() -> None:
         print("\n--- Residual summary fallback output ---")
         print(refined_output)
 
-    final_output = build_fused_fallback_output(
+    final_output_without_public_fusion = build_fused_fallback_output(
         preprocessed=preprocessed,
         keywords=keywords,
         residual_summary=refined_output,
         candidate_text=fusion_candidate_text,
+        include_public_fusion=False,
+    )
+    final_output_with_public_fusion = build_fused_fallback_output(
+        preprocessed=preprocessed,
+        keywords=keywords,
+        residual_summary=refined_output,
+        candidate_text=fusion_candidate_text,
+        include_public_fusion=True,
     )
     if fusion_candidate_text != refined_output:
         print("\n--- Fusion-guarded final rendering ---")
-        print(final_output)
-    print("\n--- Structured final output ---")
-    print(final_output)
+        print(final_output_with_public_fusion)
+    print("\n--- Structured final output without public fusion ---")
+    print(final_output_without_public_fusion)
+    print("\n--- Structured final output with public fusion ---")
+    print(final_output_with_public_fusion)
 
     print("\n--- Final output after optional removals ---")
-    print(final_output)
+    print(final_output_with_public_fusion)
     record_stage("postprocess_sec", postprocess_start)
 
     if args.skip_embedding_checks:
