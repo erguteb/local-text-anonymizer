@@ -143,7 +143,7 @@ PATTERNS: List[PatternSpec] = [
     PatternSpec(
         "account or order id",
         "[REFERENCE_ID]",
-        r"\b(?:account|order|booking|reservation|tracking|invoice|case|ticket)\s*(?:(?:id|number|#|no\.?)\s*[:#-]?\s*|\s+)(?=[A-Z0-9-]{3,24}\b)(?:[A-Z]*\d[A-Z0-9-]*|\d[A-Z0-9-]{2,23})\b",
+        r"\b(?:account|order|booking|reservation|tracking|invoice|case|ticket)\s*(?:(?:id|number|#|no\.?)\s*[:#-]?\s*|\s+)(?=[A-Z0-9-]{3,24}\b)[A-Z0-9-]{3,24}\b",
         "medium",
     ),
     PatternSpec(
@@ -345,6 +345,17 @@ def parse_preserve_ids(raw: str) -> List[int]:
     return ids
 
 
+def validate_preserve_ids(preserve_ids: Sequence[int], detections: Sequence[Detection]) -> None:
+    valid_ids = {det.id for det in detections}
+    invalid = [value for value in preserve_ids if value not in valid_ids]
+    if invalid:
+        invalid_text = ", ".join(str(value) for value in invalid)
+        raise argparse.ArgumentTypeError(
+            f"invalid preserve id(s): {invalid_text}. Valid detection numbers are: "
+            f"{', '.join(str(value) for value in sorted(valid_ids)) or '(none)'}."
+        )
+
+
 def render_detection_list(detections: Sequence[Detection]) -> str:
     if not detections:
         return "In your text, I detected no obvious private information with the current regex rules."
@@ -381,6 +392,7 @@ def main() -> None:
     detections = detect_private_information(args.text)
     try:
         preserve_ids = parse_preserve_ids(args.preserve)
+        validate_preserve_ids(preserve_ids, detections)
     except argparse.ArgumentTypeError as exc:
         parser.error(str(exc))
     should_render_sanitized = bool(preserve_ids) or not detections
