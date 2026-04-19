@@ -14,6 +14,20 @@ This skill folder is self-contained. It requires only:
 
 There are no runtime model downloads, no external API calls, and no extra service dependencies.
 
+## Important
+
+This skill is a **folder-based artifact**, not a standalone markdown file.
+
+It will not install or run correctly from `SKILL.md` alone. The companion runtime file
+`regex_privacy_sanitizer.py` must be present in the same folder.
+
+Required files:
+
+- `SKILL.md`
+- `regex_privacy_sanitizer.py`
+
+If another agent downloads only `SKILL.md`, that is an incomplete artifact.
+
 Use this skill when the user wants:
 
 - private text sanitized before sharing it elsewhere
@@ -114,6 +128,17 @@ Canonical public repository:
 
 If another agent installs this from GitHub, it should use the repository root, not a
 `blob/.../SKILL.md` URL. The artifact is the folder, not just the markdown file.
+
+Incorrect installation:
+
+- downloading only `SKILL.md`
+- using a `blob/.../SKILL.md` URL as if it were the full skill
+
+Correct installation:
+
+- clone the repository root
+- keep `SKILL.md` and `regex_privacy_sanitizer.py` together in the same folder
+- run the skill from that folder
 
 Repository-root installation flow:
 
