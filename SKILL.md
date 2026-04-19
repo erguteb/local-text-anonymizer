@@ -1,5 +1,5 @@
 ---
-name: regex-privacy-sanitizer
+name: local-text-anonymizer
 description: Use when the user wants deterministic local text sanitization without any LLM or model dependency. This skill detects likely private information with exhaustive regex and rule-based patterns, presents a numbered review list to the user, lets the user preserve selected items by number, and returns sanitized text with placeholders.
 ---
 
@@ -106,6 +106,23 @@ python3 regex_privacy_sanitizer.py \
 Another AI agent should be able to use this skill by downloading this folder as-is and reading
 `SKILL.md`. The skill does not rely on any other local package in this repository.
 
+## Source Repository
+
+Canonical public repository:
+
+- `https://github.com/erguteb/local-text-anonymizer`
+
+If another agent installs this from GitHub, it should use the repository root, not a
+`blob/.../SKILL.md` URL. The artifact is the folder, not just the markdown file.
+
+Repository-root installation flow:
+
+```bash
+git clone https://github.com/erguteb/local-text-anonymizer
+cd local-text-anonymizer
+python3 regex_privacy_sanitizer.py --text "Contact Jane Doe at jane@example.com."
+```
+
 The expected folder layout is:
 
 ```text
@@ -158,6 +175,18 @@ In your text, I detected certain private information, here is all of them:
 5. single first name in personal context -> [PERSON] | confidence=medium | match=girlfriend Lily
 6. standalone street or place mention -> [LOCATION] | confidence=low | match=near Oxford Street
 ```
+
+Interpretation of the demo detections:
+
+1. age
+2. relationship status
+3. city/location context
+4. breakup/private-life detail
+5. person name
+6. specific destination/location for the downstream recommendation query
+
+This is why preserving item `6` is the recommended demo choice: it keeps the useful location
+constraint for a later LLM or text-sharing task, while still masking the more sensitive personal details.
 
 For the demo preserve choice, prefer preserving item `6` rather than item `5`, because keeping the location context is often more useful for subsequent LLM prompting or advice-seeking than keeping the person name.
 
