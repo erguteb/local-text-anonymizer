@@ -400,8 +400,8 @@ def sanitize_text(text: str, detections: Sequence[Detection], preserve_ids: Sequ
     return normalize_space(sanitized)
 
 
-def parse_preserve_ids(raw: str) -> List[int]:
-    if not raw.strip():
+def parse_preserve_ids(raw: str | None) -> List[int]:
+    if raw is None or not raw.strip():
         return []
     ids: List[int] = []
     for part in raw.split(","):
@@ -445,7 +445,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--text", required=True, help="Input text to analyze and sanitize.")
     parser.add_argument(
         "--preserve",
-        default="",
+        default=None,
         help="Comma-separated detection numbers to preserve in the final sanitized text.",
     )
     parser.add_argument(
@@ -466,7 +466,8 @@ def main() -> None:
         validate_preserve_ids(preserve_ids, detections)
     except argparse.ArgumentTypeError as exc:
         parser.error(str(exc))
-    should_render_sanitized = bool(preserve_ids) or not detections
+    preserve_requested = args.preserve is not None
+    should_render_sanitized = preserve_requested or not detections
     sanitized = sanitize_text(args.text, detections, preserve_ids) if should_render_sanitized else None
 
     if args.format == "json":
