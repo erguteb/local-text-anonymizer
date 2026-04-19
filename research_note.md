@@ -153,7 +153,7 @@ This work has obvious limitations.
 
 First, regex cannot recover true semantic meaning. Second, some low-confidence heuristics are intentionally broad and may over-detect names or locations. Third, the current system replaces spans with placeholders rather than paraphrasing around them, so readability may degrade in heavily redacted sentences.
 
-These limitations are acceptable for our target use case because the method prioritizes portability, controllability, and operational simplicity over semantic elegance.
+These limitations are acceptable for our target use case because the method is not meant to optimize semantic elegance, nor is it intended to be a fully rigorous research-level anonymization system in the sense of model-based semantic rewriting or formally end-to-end privacy guarantees. Its value is different: it is a handy, low-friction skill with minimal dependencies that can run almost anywhere, be inspected easily, and be patched quickly. That makes it useful for auditing, for first-pass privacy review, and as a strong baseline against which more advanced anonymization techniques can be compared. In other words, the contribution is not “best possible anonymization quality,” but a practical privacy tool that is easy to execute, reason about, and improve incrementally.
 
 ## 8. Conclusion
 
