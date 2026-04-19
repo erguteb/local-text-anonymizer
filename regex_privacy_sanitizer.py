@@ -216,6 +216,14 @@ PATTERNS: List[PatternSpec] = [
     ),
 ]
 
+FOLLOW_UP_PROMPT = """If you want, now send your own text. I will:
+1. detect the private information in it,
+2. show you the numbered mapping in the original text,
+3. show you the full detected list with categories and matched spans,
+4. let you choose which items to preserve,
+5. return the sanitized text,
+6. and show the original text for comparison."""
+
 
 def normalize_space(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
@@ -466,6 +474,110 @@ def render_detection_list(detections: Sequence[Detection]) -> str:
     return "\n".join(lines)
 
 
+def render_annotated_text(text: str, detections: Sequence[Detection]) -> str:
+    if not detections:
+        return text
+    pieces: List[str] = []
+    cursor = 0
+    for det in detections:
+        if det.start < cursor:
+            continue
+        pieces.append(text[cursor:det.start])
+        pieces.append(f"<<{det.id}:{text[det.start:det.end]}>>")
+        cursor = det.end
+    pieces.append(text[cursor:])
+    return "".join(pieces)
+
+
+def render_summary_list(detections: Sequence[Detection]) -> str:
+    lines = ["Summary:"]
+    for det in detections:
+        lines.append(f'{det.id}. "{det.text}" -> {det.category}')
+    return "\n".join(lines)
+
+
+def render_detailed_list(detections: Sequence[Detection]) -> str:
+    lines = ["Detailed detections:"]
+    for det in detections:
+        lines.append(
+            f'{det.id}. category={det.category} | placeholder={det.placeholder} | '
+            f'confidence={det.confidence} | matched_text="{det.text}"'
+        )
+    return "\n".join(lines)
+
+
+def render_comparison(text: str, sanitized: str, preview: bool) -> str:
+    after_label = "After (sanitized preview):" if preview else "After (sanitized text):"
+    return "\n".join(
+        [
+            "End-to-end comparison:",
+            "Before:",
+            text,
+            "",
+            after_label,
+            sanitized,
+        ]
+    )
+
+
+def render_next_step(detections: Sequence[Detection], preserve_requested: bool) -> str:
+    if not detections:
+        return "Next step:\nNo preserve step is needed because nothing was detected."
+    if preserve_requested:
+        return (
+            "Next step:\n"
+            "If you want a different preserve choice, reply with the number(s) you want to keep and I will re-run the sanitization."
+        )
+    return (
+        "Next step:\n"
+        "Reply with any number(s) you want to preserve. If none, I will sanitize all detected items."
+    )
+
+
+def render_retry_prompt() -> str:
+    return "Try another text:\n" + FOLLOW_UP_PROMPT
+
+
+def render_text_report(
+    text: str,
+    detections: Sequence[Detection],
+    preserve_ids: Sequence[int],
+    sanitized: str,
+    preserve_requested: bool,
+) -> str:
+    if not detections:
+        return "\n\n".join(
+            [
+                render_detection_list(detections),
+                "Original text:\n" + text,
+                "Sanitized text:\n" + sanitized,
+                render_comparison(text, sanitized, preview=False),
+                render_retry_prompt(),
+            ]
+        )
+
+    sections = [
+        "In your text, I detected certain private information, here is all of them:",
+        "Original text:\n" + text,
+        "Annotated input (the numbers show exactly what items 1-" + str(len(detections)) + " refer to):\n"
+        + render_annotated_text(text, detections),
+        render_summary_list(detections),
+        render_detailed_list(detections),
+    ]
+    if preserve_requested:
+        if preserve_ids:
+            preserve_label = ", ".join(str(value) for value in preserve_ids)
+            sections.append(f"Sanitized text after preserving item(s) {preserve_label}:\n{sanitized}")
+        else:
+            sections.append("Sanitized text:\n" + sanitized)
+    else:
+        sections.append("Sanitized preview if all detected items are masked:\n" + sanitized)
+    sections.append(render_comparison(text, sanitized, preview=not preserve_requested))
+    sections.append(render_next_step(detections, preserve_requested))
+    sections.append(render_retry_prompt())
+    return "\n\n".join(sections)
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Regex-only privacy sanitizer with detection review and preserve-by-number support."
@@ -495,25 +607,34 @@ def main() -> None:
     except argparse.ArgumentTypeError as exc:
         parser.error(str(exc))
     preserve_requested = args.preserve is not None
-    should_render_sanitized = preserve_requested or not detections
-    sanitized = sanitize_text(args.text, detections, preserve_ids) if should_render_sanitized else None
+    sanitized = sanitize_text(args.text, detections, preserve_ids)
 
     if args.format == "json":
         payload = {
             "message": render_detection_list(detections),
+            "annotated_text": render_annotated_text(args.text, detections),
+            "summary": [
+                {
+                    "id": det.id,
+                    "matched_text": det.text,
+                    "category": det.category,
+                    "placeholder": det.placeholder,
+                    "confidence": det.confidence,
+                }
+                for det in detections
+            ],
+            "original_text": args.text,
             "detections": [asdict(det) for det in detections],
             "preserve_ids": preserve_ids,
             "sanitized_text": sanitized,
+            "preserve_requested": preserve_requested,
+            "preserve_prompt": render_next_step(detections, preserve_requested),
+            "follow_up_prompt": FOLLOW_UP_PROMPT,
         }
         print(json.dumps(payload, indent=2, ensure_ascii=True))
         return
 
-    print(render_detection_list(detections))
-    if detections:
-        print("\nIf you want to preserve any detected item, reply with its number(s).")
-    if should_render_sanitized:
-        print("\nSanitized text:")
-        print(sanitized)
+    print(render_text_report(args.text, detections, preserve_ids, sanitized, preserve_requested))
 
 
 if __name__ == "__main__":

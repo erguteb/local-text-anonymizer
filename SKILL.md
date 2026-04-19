@@ -61,14 +61,13 @@ When this skill is used on a user-provided text, follow this interaction:
 1. Run the detector script on the input text.
 2. Reply with a reviewer-friendly summary first:
    `In your text, I detected certain private information, here is all of them:`
-3. Show a numbered private-information summary list such as:
-   `1. age`
-   `2. relationship detail`
-   `3. location`
-4. Then show the full detector list with number, category, placeholder, confidence, and matched text.
-5. Ask the user which numbers to preserve, if any.
-6. Re-run sanitization preserving those detection numbers.
-7. Return the final sanitized text and also show the original text for comparison.
+3. Show the original text and an annotated version of it where each detected span is marked with its detection number.
+4. Show a numbered private-information summary list where each number is clearly tied to the matched span.
+5. Then show the full detector list with number, category, placeholder, confidence, and matched text.
+6. Show a sanitized preview and an end-to-end before/after comparison.
+7. Ask the user which numbers to preserve, if any.
+8. Re-run sanitization preserving those detection numbers.
+9. Return the final sanitized text, the original text for comparison, and a prompt inviting the user to try another input.
 
 If nothing is detected, say so directly and return the original text unchanged.
 
@@ -202,27 +201,44 @@ python3 regex_privacy_sanitizer.py --text "I am a 23 year old guy single in Lond
 
 Then show:
 
-1. a short numbered summary of the private information detected
-2. the full detector output
-3. a preserve-choice prompt
-4. a second-pass sanitized result
-5. the original text for side-by-side comparison
+1. the original text
+2. the annotated input showing what items `1..n` refer to
+3. a short numbered summary of the private information detected
+4. the full detector output
+5. a before/after comparison block
+6. a preserve-choice prompt
+7. a second-pass sanitized result
+8. a prompt inviting the user to try another text
 
 The built-in demo should be shown explicitly in the artifact, not just described abstractly.
 
-First pass output from the script:
+First-pass structure from the script:
 
 ```text
 In your text, I detected certain private information, here is all of them:
-1. age expression -> [AGE] | confidence=medium | match=I am a 23 year old
-2. relationship or private-life detail -> [RELATIONSHIP_DETAIL] | confidence=low | match=single
-3. city or place mention -> [LOCATION] | confidence=low | match=in London
-4. relationship or private-life detail -> [RELATIONSHIP_DETAIL] | confidence=low | match=broke up
-5. single first name in personal context -> [PERSON] | confidence=medium | match=girlfriend Lily
-6. standalone street or place mention -> [LOCATION] | confidence=low | match=near Oxford Street
+Original text:
+I am a 23 year old guy single in London. I just broke up with my girlfriend Lily. Do you know any good place for beer near Oxford Street?
+
+Annotated input:
+<<1:I am a 23 year old>> guy <<2:single>> <<3:in London>>. I just <<4:broke up>> with my <<5:girlfriend Lily>>. Do you know any good place for beer <<6:near Oxford Street>>?
+
+Summary:
+1. "I am a 23 year old" -> age expression
+2. "single" -> relationship or private-life detail
+...
+
+Detailed detections:
+1. category=age expression | placeholder=[AGE] | confidence=medium | matched_text="I am a 23 year old"
+2. category=relationship or private-life detail | placeholder=[RELATIONSHIP_DETAIL] | confidence=low | matched_text="single"
+...
+
+Sanitized preview if all detected items are masked:
+[AGE] guy [RELATIONSHIP_DETAIL] [LOCATION]. I just [RELATIONSHIP_DETAIL] with my [PERSON]. Do you know any good place for beer [LOCATION]?
 ```
 
-When presenting the demo to the reviewer, add this explicit private-information summary before or alongside the raw detector list:
+When presenting the demo to the reviewer, make sure the reviewer can immediately see what `1..6` correspond to in the original sentence. The annotated-input block is mandatory because it removes ambiguity.
+
+For the demo, the private-information summary should read like this:
 
 1. age
 2. relationship status
@@ -309,6 +325,12 @@ Your reply should mirror the tool output and explicitly invite preservation choi
 
 ```text
 In your text, I detected certain private information, here is all of them:
+Original text:
+...
+
+Annotated input:
+...
+
 Summary:
 1. ...
 2. ...
@@ -316,6 +338,13 @@ Summary:
 Detailed detections:
 1. ...
 2. ...
+
+End-to-end comparison:
+Before:
+...
+
+After:
+...
 
 Reply with any number(s) you want to preserve. If none, I will sanitize all detected items.
 ```
@@ -334,11 +363,14 @@ Return only the final sanitized text unless the user asks for more detail.
 
 For interactive user-facing runs, prefer returning:
 
-1. a numbered summary of the private information detected
-2. the detailed detected list
-3. the preserve prompt
-4. the sanitized text
-5. the original text for comparison
+1. the original text
+2. the annotated input with numbered spans
+3. a numbered summary of the private information detected
+4. the detailed detected list
+5. the before/after comparison
+6. the preserve prompt
+7. the sanitized text
+8. a final prompt inviting the user to try another text
 
 ## Placeholder Policy
 
