@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from collections import Counter
 from dataclasses import asdict, dataclass
 from typing import List, Sequence
 
@@ -17,6 +18,10 @@ class Detection:
     start: int
     end: int
     confidence: str
+    rule_id: str
+    rule_pattern: str
+    rule_flags: str
+    rationale: str
 
 
 @dataclass
@@ -216,6 +221,42 @@ PATTERNS: List[PatternSpec] = [
     ),
 ]
 
+RULE_RATIONALES = {
+    "email address": "The matched span has the local@domain.tld structure of an email address.",
+    "phone number": "The matched span follows a phone-number digit grouping pattern.",
+    "social handle": "The matched span starts with @ and fits a social-handle token shape.",
+    "url": "The matched span fits an http(s) or www-style URL pattern.",
+    "ip address": "The matched span fits a dotted-quad IPv4 address pattern.",
+    "mac address": "The matched span fits a MAC-address hex pair pattern.",
+    "ssn": "The matched span fits the common XXX-XX-XXXX SSN pattern.",
+    "ein": "The matched span fits the common XX-XXXXXXX EIN pattern.",
+    "credit card": "The matched span fits a card-number pattern and also passes a Luhn checksum.",
+    "iban": "The matched span fits the country-code-plus-check-digits shape of an IBAN.",
+    "swift bic": "The matched span fits a SWIFT/BIC code pattern near banking keywords.",
+    "routing number": "The matched span fits a 9-digit routing-number pattern near routing keywords.",
+    "bank account number": "The matched span appears after account-number keywords and fits the account token pattern.",
+    "passport number": "The matched span appears after passport keywords and fits the passport token pattern.",
+    "driver license number": "The matched span appears after license keywords and fits the license token pattern.",
+    "date of birth": "The matched span appears after DOB-style keywords and fits a date pattern.",
+    "age expression": "The matched span explicitly states an age such as 'I'm 23' or '23 years old'.",
+    "relationship or private-life detail": "The matched span is a relationship-status or private-life keyword from the heuristic rule list.",
+    "single first name in personal context": "The matched span pairs a relationship or role word with a capitalized first name.",
+    "single first name": "The matched span follows an explicit naming phrase such as 'named Alice'.",
+    "street address": "The matched span starts with a street number and ends with a street-type token.",
+    "standalone street or place mention": "The matched span references a named street or place phrase from the location heuristic.",
+    "city or place mention": "The matched span is a preposition followed by one or more capitalized place-like words.",
+    "zip or postal code": "The matched span fits a US ZIP or UK-style postal-code pattern.",
+    "license plate": "The matched span appears after plate keywords and fits the license-plate token pattern.",
+    "medical record number": "The matched span appears after medical-record keywords and fits the record token pattern.",
+    "employee or student id": "The matched span appears after internal-ID keywords and fits the identifier token pattern.",
+    "account or order id": "The matched span appears after account or order keywords and fits the reference token pattern.",
+    "organization name": "The matched span ends with an organization suffix such as Inc, LLC, University, or Bank.",
+    "person name with title": "The matched span starts with a person title such as Mr, Ms, Dr, or Prof.",
+    "full person name": "The matched span is a heuristic full-name match made of two or more capitalized words.",
+    "bitcoin wallet": "The matched span fits a Bitcoin wallet-address pattern.",
+    "ethereum wallet": "The matched span fits an Ethereum wallet-address pattern.",
+}
+
 FOLLOW_UP_PROMPT = """If you want, now send your own text. I will:
 1. detect the private information in it,
 2. show you the numbered mapping in the original text,
@@ -227,6 +268,38 @@ FOLLOW_UP_PROMPT = """If you want, now send your own text. I will:
 
 def normalize_space(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
+
+
+def slugify(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+
+def build_rule_id(index: int, category: str) -> str:
+    return f"rule-{index:02d}-{slugify(category)}"
+
+
+def flags_to_text(flags: int) -> str:
+    if flags == 0:
+        return "0"
+    names = []
+    if flags & re.IGNORECASE:
+        names.append("IGNORECASE")
+    if flags & re.MULTILINE:
+        names.append("MULTILINE")
+    if flags & re.DOTALL:
+        names.append("DOTALL")
+    if flags & re.UNICODE:
+        names.append("UNICODE")
+    return "|".join(names) if names else str(flags)
+
+
+def build_rationale(spec: PatternSpec) -> str:
+    rationale = RULE_RATIONALES.get(spec.category, f'The matched span satisfied the regex rule for "{spec.category}".')
+    if spec.confidence == "low":
+        rationale += " This is a heuristic rule, so manual review is recommended."
+    elif spec.confidence == "medium":
+        rationale += " Manual review is still useful because this rule can match broader context."
+    return rationale
 
 
 def only_digits(text: str) -> str:
@@ -397,7 +470,10 @@ def resolve_overlaps(detections: Sequence[Detection]) -> List[Detection]:
 
 def detect_private_information(text: str) -> List[Detection]:
     raw: List[Detection] = []
-    for spec in PATTERNS:
+    for rule_index, spec in enumerate(PATTERNS, start=1):
+        rule_id = build_rule_id(rule_index, spec.category)
+        rule_flags = flags_to_text(spec.flags)
+        rationale = build_rationale(spec)
         for match in re.finditer(spec.pattern, text, flags=spec.flags):
             matched_text = normalize_space(match.group(0))
             if not matched_text:
@@ -411,6 +487,10 @@ def detect_private_information(text: str) -> List[Detection]:
                     start=match.start(),
                     end=match.end(),
                     confidence=spec.confidence,
+                    rule_id=rule_id,
+                    rule_pattern=spec.pattern,
+                    rule_flags=rule_flags,
+                    rationale=rationale,
                 )
             )
     filtered = [det for det in raw if is_plausible_detection(det)]
@@ -492,17 +572,55 @@ def render_annotated_text(text: str, detections: Sequence[Detection]) -> str:
 def render_summary_list(detections: Sequence[Detection]) -> str:
     lines = ["Summary:"]
     for det in detections:
-        lines.append(f'{det.id}. "{det.text}" -> {det.category}')
+        lines.append(
+            f'{det.id}. "{det.text}" -> {det.category} | placeholder={det.placeholder} | confidence={det.confidence}'
+        )
     return "\n".join(lines)
 
 
-def render_detailed_list(detections: Sequence[Detection]) -> str:
-    lines = ["Detailed detections:"]
+def render_context_snippet(text: str, start: int, end: int, radius: int = 28) -> str:
+    left = max(0, start - radius)
+    right = min(len(text), end + radius)
+    prefix = text[left:start]
+    matched = text[start:end]
+    suffix = text[end:right]
+    if left > 0:
+        prefix = "..." + prefix
+    if right < len(text):
+        suffix = suffix + "..."
+    return prefix + "[" + matched + "]" + suffix
+
+
+def render_reviewer_audit(detections: Sequence[Detection]) -> str:
+    confidence_counts = Counter(det.confidence for det in detections)
+    lines = [
+        "Reviewer audit notes:",
+        "engine=local deterministic regex+heuristics | hosted_model_calls=no | local_model_downloads=no | network_required=no",
+        (
+            f"pattern_count={len(PATTERNS)} | detections={len(detections)} | "
+            f"high={confidence_counts.get('high', 0)} | "
+            f"medium={confidence_counts.get('medium', 0)} | "
+            f"low={confidence_counts.get('low', 0)}"
+        ),
+        "verification_surfaces=annotated text, matched text, span offsets, local context, confidence, placeholder, rule id, regex pattern, regex flags",
+    ]
+    if confidence_counts.get("low", 0):
+        lines.append("manual_review_recommended=yes because one or more detections are heuristic low-confidence matches")
+    return "\n".join(lines)
+
+
+def render_detailed_list(text: str, detections: Sequence[Detection]) -> str:
+    lines = ["Detailed detections (reviewer format):"]
     for det in detections:
         lines.append(
             f'{det.id}. category={det.category} | placeholder={det.placeholder} | '
-            f'confidence={det.confidence} | matched_text="{det.text}"'
+            f'confidence={det.confidence} | span=[{det.start},{det.end}) | rule_id={det.rule_id}'
         )
+        lines.append(f'   matched_text="{det.text}"')
+        lines.append(f'   context="{render_context_snippet(text, det.start, det.end)}"')
+        lines.append(f"   rationale={det.rationale}")
+        lines.append(f"   regex={det.rule_pattern}")
+        lines.append(f"   flags={det.rule_flags}")
     return "\n".join(lines)
 
 
@@ -538,6 +656,67 @@ def render_retry_prompt() -> str:
     return "Try another text:\n" + FOLLOW_UP_PROMPT
 
 
+def build_engine_metadata() -> dict:
+    return {
+        "engine_name": "regex-privacy-sanitizer",
+        "deterministic": True,
+        "uses_hosted_model": False,
+        "uses_local_model": False,
+        "network_required": False,
+        "pattern_count": len(PATTERNS),
+        "heuristic_filters": [
+            "Luhn validation for credit-card candidates",
+            "place-name suppression for person-name heuristics",
+            "non-location phrase suppression for location heuristics",
+            "generic token suppression for single-name heuristics",
+        ],
+        "reviewer_fields": [
+            "matched_text",
+            "start",
+            "end",
+            "context",
+            "confidence",
+            "placeholder",
+            "rule_id",
+            "rule_pattern",
+            "rule_flags",
+            "rationale",
+        ],
+    }
+
+
+def build_rule_catalog() -> List[dict]:
+    rules = []
+    for index, spec in enumerate(PATTERNS, start=1):
+        rules.append(
+            {
+                "rule_id": build_rule_id(index, spec.category),
+                "category": spec.category,
+                "placeholder": spec.placeholder,
+                "confidence": spec.confidence,
+                "regex": spec.pattern,
+                "flags": flags_to_text(spec.flags),
+                "rationale": build_rationale(spec),
+            }
+        )
+    return rules
+
+
+def render_rule_catalog_text() -> str:
+    lines = [
+        "Rule catalog:",
+        "This skill is fully local and deterministic. Each rule below is a regex-backed detector with an attached confidence label.",
+    ]
+    for index, rule in enumerate(build_rule_catalog(), start=1):
+        lines.append(
+            f"{index}. rule_id={rule['rule_id']} | category={rule['category']} | "
+            f"placeholder={rule['placeholder']} | confidence={rule['confidence']} | flags={rule['flags']}"
+        )
+        lines.append(f"   rationale={rule['rationale']}")
+        lines.append(f"   regex={rule['regex']}")
+    return "\n".join(lines)
+
+
 def render_text_report(
     text: str,
     detections: Sequence[Detection],
@@ -549,6 +728,7 @@ def render_text_report(
         return "\n\n".join(
             [
                 render_detection_list(detections),
+                render_reviewer_audit(detections),
                 "Original text:\n" + text,
                 "Sanitized text:\n" + sanitized,
                 render_comparison(text, sanitized, preview=False),
@@ -558,11 +738,12 @@ def render_text_report(
 
     sections = [
         "In your text, I detected certain private information, here is all of them:",
+        render_reviewer_audit(detections),
         "Original text:\n" + text,
         "Annotated input (the numbers show exactly what items 1-" + str(len(detections)) + " refer to):\n"
         + render_annotated_text(text, detections),
         render_summary_list(detections),
-        render_detailed_list(detections),
+        render_detailed_list(text, detections),
     ]
     if preserve_requested:
         if preserve_ids:
@@ -582,11 +763,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Regex-only privacy sanitizer with detection review and preserve-by-number support."
     )
-    parser.add_argument("--text", required=True, help="Input text to analyze and sanitize.")
+    parser.add_argument("--text", help="Input text to analyze and sanitize.")
     parser.add_argument(
         "--preserve",
         default=None,
         help="Comma-separated detection numbers to preserve in the final sanitized text.",
+    )
+    parser.add_argument(
+        "--list-rules",
+        action="store_true",
+        help="Print the full rule catalog for reviewer inspection and exit.",
     )
     parser.add_argument(
         "--format",
@@ -600,6 +786,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = build_arg_parser()
     args = parser.parse_args()
+    if args.list_rules:
+        if args.format == "json":
+            payload = {
+                "engine": build_engine_metadata(),
+                "rules": build_rule_catalog(),
+            }
+            print(json.dumps(payload, indent=2, ensure_ascii=True))
+            return
+        print(render_rule_catalog_text())
+        return
+    if not args.text:
+        parser.error("--text is required unless --list-rules is used.")
     detections = detect_private_information(args.text)
     try:
         preserve_ids = parse_preserve_ids(args.preserve)
@@ -611,7 +809,9 @@ def main() -> None:
 
     if args.format == "json":
         payload = {
+            "engine": build_engine_metadata(),
             "message": render_detection_list(detections),
+            "reviewer_audit": render_reviewer_audit(detections),
             "annotated_text": render_annotated_text(args.text, detections),
             "summary": [
                 {
@@ -620,11 +820,20 @@ def main() -> None:
                     "category": det.category,
                     "placeholder": det.placeholder,
                     "confidence": det.confidence,
+                    "start": det.start,
+                    "end": det.end,
+                    "rule_id": det.rule_id,
                 }
                 for det in detections
             ],
             "original_text": args.text,
-            "detections": [asdict(det) for det in detections],
+            "detections": [
+                {
+                    **asdict(det),
+                    "context": render_context_snippet(args.text, det.start, det.end),
+                }
+                for det in detections
+            ],
             "preserve_ids": preserve_ids,
             "sanitized_text": sanitized,
             "preserve_requested": preserve_requested,

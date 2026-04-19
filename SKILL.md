@@ -71,6 +71,12 @@ When this skill is used on a user-provided text, follow this interaction:
 
 If nothing is detected, say so directly and return the original text unchanged.
 
+For reviewer-facing verification, prefer the richer audit surfaces:
+
+- default text output now includes reviewer audit notes, span offsets, local context, rule IDs, regex patterns, and regex flags
+- `--format json` exposes structured engine metadata plus per-detection offsets, context, rationale, and regex provenance
+- `--list-rules` prints the entire local rule catalog so a reviewer can inspect what the skill can and cannot detect
+
 ## Detection Model
 
 The bundled script uses exhaustive regex and local heuristics for categories including:
@@ -132,6 +138,12 @@ Structured output:
 python3 regex_privacy_sanitizer.py \
   --text "Contact Jane Doe at jane@example.com." \
   --format json
+```
+
+Reviewer rule catalog:
+
+```bash
+python3 regex_privacy_sanitizer.py --list-rules
 ```
 
 ## Installation Expectations
