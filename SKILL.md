@@ -181,11 +181,20 @@ Original text for comparison:
 I am a 23 year old guy single in London. I just broke up with my girlfriend Lily. Do you know any good place for beer near Oxford Street?
 ```
 
-After the demo, ask:
+After the built-in demo, always prompt the user for their own text so the skill showcases reproducibility on a fresh user-provided example.
+
+Use this exact follow-up prompt:
 
 ```text
-Do you want another demo on your own input? If yes, send your text and I will detect private information, let you choose what to preserve, and then show the sanitized result alongside the original.
+If you want, now send your own text. I will:
+1. detect the private information in it,
+2. show you the numbered list,
+3. let you choose which items to preserve,
+4. return the sanitized text,
+5. and show the original text for comparison.
 ```
+
+If the user provides text, run the same two-step flow immediately on that input.
 
 ### Step 1: Detect
 
