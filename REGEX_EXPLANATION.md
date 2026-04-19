@@ -196,11 +196,15 @@ Purpose:
 Regex:
 
 ```regex
-\b(?:account|acct)\s*(?:number|#|no\.?)?\s*[:#-]?\s*[A-Z0-9-]{6,20}\b
+\b(?:account|acct)\s*(?:number|#|no\.?)\s*[:#-]?\s*[A-Z0-9-]{6,20}\b
 ```
 
 Purpose:
 - detect account-number phrases
+
+Note:
+- this now requires an explicit marker such as `account number`
+- plain prose like `the account closed yesterday` should no longer match
 
 ### Passport numbers
 
@@ -312,7 +316,7 @@ Purpose:
 Regex:
 
 ```regex
-\b(?:account|order|booking|reservation|tracking|invoice|case|ticket)\s*(?:(?:id|number|#|no\.?)\s*)?[:#-]?\s*[A-Z0-9-]{3,24}\b
+\b(?:account|order|booking|reservation|tracking|invoice|case|ticket)\s*(?:(?:id|number|#|no\.?)\s*[:#-]?\s*|\s+)(?=[A-Z0-9-]{3,24}\b)(?:[A-Z]*\d[A-Z0-9-]*|\d[A-Z0-9-]{2,23})\b
 ```
 
 Purpose:
@@ -320,6 +324,10 @@ Purpose:
   - `order 12345678`
   - `order number 12345678`
   - `ticket ABC-123`
+
+Note:
+- this now requires the identifier-like token to contain at least one digit
+- plain prose like `order pizza` should no longer match
 
 ### Organization names
 
@@ -406,6 +414,9 @@ In text mode, the script is intentionally detect-first:
 
 1. first run without `--preserve`: prints the numbered detection list only
 2. second run with `--preserve` (or with no detections): prints the sanitized text
+
+If `--preserve` contains invalid non-numeric items, the CLI exits with a normal argparse usage
+error instead of a raw Python exception.
 
 ## Known Limitations
 

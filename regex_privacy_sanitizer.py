@@ -84,7 +84,7 @@ PATTERNS: List[PatternSpec] = [
     PatternSpec(
         "bank account number",
         "[BANK_ACCOUNT]",
-        r"\b(?:account|acct)\s*(?:number|#|no\.?)?\s*[:#-]?\s*[A-Z0-9-]{6,20}\b",
+        r"\b(?:account|acct)\s*(?:number|#|no\.?)\s*[:#-]?\s*[A-Z0-9-]{6,20}\b",
         "high",
     ),
     PatternSpec(
@@ -144,7 +144,7 @@ PATTERNS: List[PatternSpec] = [
     PatternSpec(
         "account or order id",
         "[REFERENCE_ID]",
-        r"\b(?:account|order|booking|reservation|tracking|invoice|case|ticket)\s*(?:(?:id|number|#|no\.?)\s*)?[:#-]?\s*[A-Z0-9-]{3,24}\b",
+        r"\b(?:account|order|booking|reservation|tracking|invoice|case|ticket)\s*(?:(?:id|number|#|no\.?)\s*[:#-]?\s*|\s+)(?=[A-Z0-9-]{3,24}\b)(?:[A-Z]*\d[A-Z0-9-]*|\d[A-Z0-9-]{2,23})\b",
         "medium",
     ),
     PatternSpec(
@@ -269,6 +269,10 @@ def parse_preserve_ids(raw: str) -> List[int]:
         part = part.strip()
         if not part:
             continue
+        if not re.fullmatch(r"\d+", part):
+            raise argparse.ArgumentTypeError(
+                f"invalid preserve list item: {part!r}. Expected comma-separated detection numbers."
+            )
         ids.append(int(part))
     return ids
 
@@ -304,9 +308,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    args = build_arg_parser().parse_args()
+    parser = build_arg_parser()
+    args = parser.parse_args()
     detections = detect_private_information(args.text)
-    preserve_ids = parse_preserve_ids(args.preserve)
+    try:
+        preserve_ids = parse_preserve_ids(args.preserve)
+    except argparse.ArgumentTypeError as exc:
+        parser.error(str(exc))
     should_render_sanitized = bool(preserve_ids) or not detections
     sanitized = sanitize_text(args.text, detections, preserve_ids) if should_render_sanitized else None
 
