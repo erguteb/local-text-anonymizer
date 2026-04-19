@@ -71,9 +71,8 @@ PATTERNS: List[PatternSpec] = [
     PatternSpec(
         "swift bic",
         "[SWIFT_BIC]",
-        r"\b[A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?\b",
+        r"\b(?:swift|bic|swift bic|bank code)\s*(?:code|#|no\.?)?\s*[:#-]?\s*[A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?\b",
         "medium",
-        flags=0,
     ),
     PatternSpec(
         "routing number",
@@ -189,6 +188,74 @@ def normalize_space(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def only_digits(text: str) -> str:
+    return re.sub(r"\D", "", text)
+
+
+def passes_luhn(number: str) -> bool:
+    digits = only_digits(number)
+    if len(digits) < 13 or len(digits) > 19:
+        return False
+    total = 0
+    reverse_digits = digits[::-1]
+    for idx, char in enumerate(reverse_digits):
+        value = int(char)
+        if idx % 2 == 1:
+            value *= 2
+            if value > 9:
+                value -= 9
+        total += value
+    return total % 10 == 0
+
+
+def looks_like_place_name(text: str) -> bool:
+    tokens = text.split()
+    if len(tokens) < 2:
+        return False
+    place_pairs = {
+        ("New", "York"),
+        ("Los", "Angeles"),
+        ("San", "Francisco"),
+        ("San", "Diego"),
+        ("Las", "Vegas"),
+        ("Hong", "Kong"),
+        ("United", "States"),
+        ("New", "Jersey"),
+        ("South", "Korea"),
+        ("North", "Carolina"),
+        ("South", "Carolina"),
+    }
+    if tuple(tokens[:2]) in place_pairs:
+        return True
+    place_tokens = {
+        "York",
+        "London",
+        "Paris",
+        "Berlin",
+        "Tokyo",
+        "Boston",
+        "Chicago",
+        "Dallas",
+        "Miami",
+        "Seattle",
+        "Austin",
+        "Denver",
+        "Toronto",
+        "Sydney",
+        "Dublin",
+        "Delhi",
+    }
+    return all(token in place_tokens for token in tokens[:2])
+
+
+def is_plausible_detection(det: Detection) -> bool:
+    if det.category == "credit card":
+        return passes_luhn(det.text)
+    if det.category == "full person name":
+        return not looks_like_place_name(det.text)
+    return True
+
+
 def dedupe_detections(detections: Sequence[Detection]) -> List[Detection]:
     seen = set()
     output: List[Detection] = []
@@ -239,7 +306,8 @@ def detect_private_information(text: str) -> List[Detection]:
                     confidence=spec.confidence,
                 )
             )
-    return resolve_overlaps(dedupe_detections(raw))
+    filtered = [det for det in raw if is_plausible_detection(det)]
+    return resolve_overlaps(dedupe_detections(filtered))
 
 
 def sanitize_text(text: str, detections: Sequence[Detection], preserve_ids: Sequence[int]) -> str:

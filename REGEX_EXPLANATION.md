@@ -156,7 +156,8 @@ Purpose:
 - broadly detect card-like digit strings
 
 Note:
-- this is intentionally broad and may match non-card long numeric strings
+- the raw regex is intentionally broad, but the script then applies a Luhn checksum filter
+- long digit strings that fail Luhn should not survive as card detections
 
 ### IBANs
 
@@ -178,7 +179,10 @@ Regex:
 ```
 
 Purpose:
-- detect SWIFT/BIC bank codes
+- detect SWIFT/BIC bank codes when they appear with explicit banking context such as:
+  - `swift code ABCDEF12`
+  - `bic ABCDEF12`
+  - `bank code ABCDEF12`
 
 ### Routing numbers
 
@@ -365,6 +369,7 @@ Purpose:
 Warning:
 - this is still broad and can match non-name capitalized phrases
 - a small stop-list is used to avoid obvious sentence-leading verbs such as `Contact`
+- a second place-name filter is applied to suppress common location phrases such as `New York`
 
 ### Cryptocurrency wallets
 
@@ -400,6 +405,13 @@ Overlapping detections are resolved by preferring:
 - higher confidence when span length is equal
 
 This helps avoid double replacement of the same text region.
+
+### 3. Category-specific plausibility filters
+
+Some categories are validated after regex matching:
+
+- credit cards must pass a Luhn checksum
+- low-confidence full-name detections are filtered against a small place-name list
 
 ## Sanitization Logic
 
