@@ -126,7 +126,7 @@ PATTERNS: List[PatternSpec] = [
     PatternSpec(
         "single first name",
         "[PERSON]",
-        r"\b[A-Z][a-z]{2,20}\b",
+        r"\b(?:named|called|name is)\s+[A-Z][a-z]{2,20}\b",
         "low",
         flags=0,
     ),
@@ -139,7 +139,7 @@ PATTERNS: List[PatternSpec] = [
     PatternSpec(
         "standalone street or place mention",
         "[LOCATION]",
-        r"\b(?:[A-Za-z][A-Za-z'-]+(?:\s+[A-Za-z][A-Za-z'-]+){0,2}\s+(?:Street|St\.?|Road|Rd\.?|Avenue|Ave\.?|Boulevard|Blvd\.?|Bd\.?|Lane|Ln\.?|Drive|Dr\.?|Court|Ct\.?|Terrace|Ter\.?))\b",
+        r"\b(?:[A-Za-z][A-Za-z'-]+\s+(?:Street|St\.?|Road|Rd\.?|Avenue|Ave\.?|Boulevard|Blvd\.?|Bd\.?|Lane|Ln\.?|Drive|Dr\.?|Court|Ct\.?|Terrace|Ter\.?)|(?:near|in|around|from|to)\s+(?:the\s+)?[A-Za-z][A-Za-z'-]+\s+(?:Street|St\.?|Road|Rd\.?|Avenue|Ave\.?|Boulevard|Blvd\.?|Bd\.?|Lane|Ln\.?|Drive|Dr\.?|Court|Ct\.?|Terrace|Ter\.?))\b",
         "low",
     ),
     PatternSpec(
@@ -176,7 +176,7 @@ PATTERNS: List[PatternSpec] = [
     PatternSpec(
         "account or order id",
         "[REFERENCE_ID]",
-        r"\b(?:account|order|booking|reservation|tracking|invoice|case|ticket)\s*(?:(?:id|number|#|no\.?)\s*[:#-]?\s*|\s+)(?=[A-Z0-9-]{3,24}\b)[A-Z0-9-]{3,24}\b",
+        r"\b(?:account|order|booking|reservation|tracking|invoice|case|ticket)\s*(?:(?:id|number|#|no\.?)\s*[:#-]?\s*[A-Z0-9-]{3,24}|(?:(?=\s+[A-Z0-9-]*\d[A-Z0-9-]{2,23}\b)\s+[A-Z0-9-]{3,24}))\b",
         "medium",
     ),
     PatternSpec(
@@ -247,6 +247,7 @@ def looks_like_place_name(text: str) -> bool:
         return False
     place_pairs = {
         ("New", "York"),
+        ("New", "Delhi"),
         ("Los", "Angeles"),
         ("San", "Francisco"),
         ("San", "Diego"),
@@ -304,11 +305,23 @@ def looks_like_common_non_name_token(text: str) -> bool:
     return token in common
 
 
+def looks_like_generic_non_name_phrase(text: str) -> bool:
+    tokens = tuple(text.split())
+    generic_pairs = {
+        ("Privacy", "Policy"),
+        ("Terms", "Conditions"),
+        ("Customer", "Service"),
+        ("Order", "Status"),
+        ("Account", "Number"),
+    }
+    return tokens[:2] in generic_pairs
+
+
 def is_plausible_detection(det: Detection) -> bool:
     if det.category == "credit card":
         return passes_luhn(det.text)
     if det.category == "full person name":
-        return not looks_like_place_name(det.text)
+        return not looks_like_place_name(det.text) and not looks_like_generic_non_name_phrase(det.text)
     if det.category == "single first name":
         return not looks_like_common_non_name_token(det.text)
     return True

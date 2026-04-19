@@ -289,15 +289,18 @@ Purpose:
 Regex:
 
 ```regex
-\b[A-Z][a-z]{2,20}\b
+\b(?:named|called|name is)\s+[A-Z][a-z]{2,20}\b
 ```
 
 Purpose:
-- detect standalone first-name-like tokens such as `Lily`
+- detect explicit first-name introductions such as:
+  - `named Lily`
+  - `called Sam`
+  - `name is Priya`
 
 Warning:
-- this is intentionally broad
-- a small non-name stop-list is applied after matching
+- this is narrower than a pure standalone-name detector
+- standalone first names are mainly captured through contextual patterns such as `girlfriend Lily`
 
 ### Street addresses
 
@@ -315,11 +318,11 @@ Purpose:
 Regex:
 
 ```regex
-\b(?:[A-Za-z][A-Za-z'-]+(?:\s+[A-Za-z][A-Za-z'-]+){0,2}\s+(?:Street|St\.?|Road|Rd\.?|Avenue|Ave\.?|Boulevard|Blvd\.?|Bd\.?|Lane|Ln\.?|Drive|Dr\.?|Court|Ct\.?|Terrace|Ter\.?))\b
+\b(?:[A-Za-z][A-Za-z'-]+\s+(?:Street|St\.?|Road|Rd\.?|Avenue|Ave\.?|Boulevard|Blvd\.?|Bd\.?|Lane|Ln\.?|Drive|Dr\.?|Court|Ct\.?|Terrace|Ter\.?)|(?:near|in|around|from|to)\s+(?:the\s+)?[A-Za-z][A-Za-z'-]+\s+(?:Street|St\.?|Road|Rd\.?|Avenue|Ave\.?|Boulevard|Blvd\.?|Bd\.?|Lane|Ln\.?|Drive|Dr\.?|Court|Ct\.?|Terrace|Ter\.?))\b
 ```
 
 Purpose:
-- detect plain location mentions such as `Oxford Street` or `oxford st.` even without a street number
+- detect plain location mentions such as `Oxford Street` or `near Oxford Street` even without a street number
 
 ### City or place mention
 
@@ -385,7 +388,7 @@ Purpose:
 Regex:
 
 ```regex
-\b(?:account|order|booking|reservation|tracking|invoice|case|ticket)\s*(?:(?:id|number|#|no\.?)\s*[:#-]?\s*|\s+)(?=[A-Z0-9-]{3,24}\b)(?:[A-Z]*\d[A-Z0-9-]*|\d[A-Z0-9-]{2,23})\b
+\b(?:account|order|booking|reservation|tracking|invoice|case|ticket)\s*(?:(?:id|number|#|no\.?)\s*[:#-]?\s*[A-Z0-9-]{3,24}|(?:(?=\s+[A-Z0-9-]*\d[A-Z0-9-]{2,23}\b)\s+[A-Z0-9-]{3,24}))\b
 ```
 
 Purpose:
@@ -395,7 +398,8 @@ Purpose:
   - `ticket ABC-123`
 
 Note:
-- this now requires the identifier-like token to contain at least one digit
+- bare references now require at least one digit
+- alphabetic-only codes are still allowed when explicit markers such as `order id` or `ticket number` are present
 - plain prose like `order pizza` should no longer match
 
 ### Organization names
@@ -477,6 +481,7 @@ Some categories are validated after regex matching:
 
 - credit cards must pass a Luhn checksum
 - low-confidence full-name detections are filtered against a small place-name list
+- low-confidence full-name detections are also filtered against a small generic-phrase list
 
 ## Sanitization Logic
 
