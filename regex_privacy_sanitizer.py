@@ -107,14 +107,47 @@ PATTERNS: List[PatternSpec] = [
     PatternSpec(
         "age expression",
         "[AGE]",
-        r"\b(?:age\s*\d{1,3}|\d{1,3}\s*(?:years old|year-old)|i\s*[\'’]?m\s*\d{1,3}|i am\s*\d{1,3})\b",
+        r"\b(?:age\s*\d{1,3}|\d{1,3}\s*(?:years?\s+old|year-old|year old)|i\s*[\'’]?m\s*\d{1,3}|i am\s*\d{1,3}|i am a\s*\d{1,3}\s*year old|i am a\s*\d{1,3}\s*year-old)\b",
         "medium",
+    ),
+    PatternSpec(
+        "relationship or private-life detail",
+        "[RELATIONSHIP_DETAIL]",
+        r"\b(?:single|divorced|separated|widowed|break(?:\s+|-)up|broke up|girlfriend|boyfriend|wife|husband|fianc[eé]|fiancee|partner|ex[-\s]?(?:girlfriend|boyfriend|wife|husband|partner))\b",
+        "low",
+    ),
+    PatternSpec(
+        "single first name in personal context",
+        "[PERSON]",
+        r"\b(?:girlfriend|boyfriend|wife|husband|partner|friend|manager|boss|roommate|flatmate|colleague|coworker|co-worker|teacher|doctor)\s+[A-Z][a-z]{2,20}\b",
+        "medium",
+        flags=0,
+    ),
+    PatternSpec(
+        "single first name",
+        "[PERSON]",
+        r"\b[A-Z][a-z]{2,20}\b",
+        "low",
+        flags=0,
     ),
     PatternSpec(
         "street address",
         "[ADDRESS]",
         r"\b\d{1,6}\s+(?:[A-Z][a-z0-9.'-]*\s+){0,5}(?:Street|St|Road|Rd|Avenue|Ave|Boulevard|Blvd|Lane|Ln|Drive|Dr|Court|Ct|Way|Place|Pl|Terrace|Ter)\b\.?",
         "medium",
+    ),
+    PatternSpec(
+        "standalone street or place mention",
+        "[LOCATION]",
+        r"\b(?:[A-Za-z][A-Za-z'-]+(?:\s+[A-Za-z][A-Za-z'-]+){0,2}\s+(?:Street|St\.?|Road|Rd\.?|Avenue|Ave\.?|Boulevard|Blvd\.?|Bd\.?|Lane|Ln\.?|Drive|Dr\.?|Court|Ct\.?|Terrace|Ter\.?))\b",
+        "low",
+    ),
+    PatternSpec(
+        "city or place mention",
+        "[LOCATION]",
+        r"\b(?:in|near|around|from|to)\s+(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b",
+        "low",
+        flags=0,
     ),
     PatternSpec(
         "zip or postal code",
@@ -248,11 +281,36 @@ def looks_like_place_name(text: str) -> bool:
     return all(token in place_tokens for token in tokens[:2])
 
 
+def looks_like_common_non_name_token(text: str) -> bool:
+    token = text.strip()
+    common = {
+        "The",
+        "This",
+        "That",
+        "These",
+        "Those",
+        "Please",
+        "Privacy",
+        "Policy",
+        "Meet",
+        "Review",
+        "Street",
+        "Road",
+        "Avenue",
+        "Beer",
+        "Oxford",
+        "London",
+    }
+    return token in common
+
+
 def is_plausible_detection(det: Detection) -> bool:
     if det.category == "credit card":
         return passes_luhn(det.text)
     if det.category == "full person name":
         return not looks_like_place_name(det.text)
+    if det.category == "single first name":
+        return not looks_like_common_non_name_token(det.text)
     return True
 
 

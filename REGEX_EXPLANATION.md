@@ -255,8 +255,49 @@ Purpose:
 - detect age-like expressions such as:
   - `age 23`
   - `23 years old`
+  - `23 year old`
   - `I'm 23`
   - `I am 23`
+  - `I am a 23 year old`
+
+### Relationship or private-life detail
+
+Regex:
+
+```regex
+\b(?:single|divorced|separated|widowed|break(?:\s+|-)up|broke up|girlfriend|boyfriend|wife|husband|fianc[eé]|fiancee|partner|ex[-\s]?(?:girlfriend|boyfriend|wife|husband|partner))\b
+```
+
+Purpose:
+- detect relationship-status and breakup-style private-life cues
+
+### Single first name in personal context
+
+Regex:
+
+```regex
+\b(?:girlfriend|boyfriend|wife|husband|partner|friend|manager|boss|roommate|flatmate|colleague|coworker|co-worker|teacher|doctor)\s+[A-Z][a-z]{2,20}\b
+```
+
+Purpose:
+- detect single capitalized names when they appear in personal-role context such as:
+  - `girlfriend Lily`
+  - `friend Sam`
+
+### Single first name
+
+Regex:
+
+```regex
+\b[A-Z][a-z]{2,20}\b
+```
+
+Purpose:
+- detect standalone first-name-like tokens such as `Lily`
+
+Warning:
+- this is intentionally broad
+- a small non-name stop-list is applied after matching
 
 ### Street addresses
 
@@ -268,6 +309,30 @@ Regex:
 
 Purpose:
 - detect common street-address forms
+
+### Standalone street or place mention
+
+Regex:
+
+```regex
+\b(?:[A-Za-z][A-Za-z'-]+(?:\s+[A-Za-z][A-Za-z'-]+){0,2}\s+(?:Street|St\.?|Road|Rd\.?|Avenue|Ave\.?|Boulevard|Blvd\.?|Bd\.?|Lane|Ln\.?|Drive|Dr\.?|Court|Ct\.?|Terrace|Ter\.?))\b
+```
+
+Purpose:
+- detect plain location mentions such as `Oxford Street` or `oxford st.` even without a street number
+
+### City or place mention
+
+Regex:
+
+```regex
+\b(?:in|near|around|from|to)\s+(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b
+```
+
+Purpose:
+- detect place mentions in personal-context phrases such as:
+  - `in London`
+  - `near New York`
 
 ### Zip or postal codes
 

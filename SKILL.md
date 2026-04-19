@@ -122,6 +122,35 @@ python3 regex_privacy_sanitizer.py --text "<user text>"
 
 ## Agent Workflow
 
+### Demo First
+
+Before asking the user for their own text, present one built-in demo so the user can see the workflow.
+
+Use this example:
+
+```text
+I am a 23 year old guy single in London. I just broke up with my girlfriend Lily. Do you know any good place for beer near Oxford Street?
+```
+
+Run:
+
+```bash
+python3 regex_privacy_sanitizer.py --text "I am a 23 year old guy single in London. I just broke up with my girlfriend Lily. Do you know any good place for beer near Oxford Street?"
+```
+
+Then show:
+
+1. the detected private-information list
+2. a preserve-choice prompt
+3. a second-pass sanitized result
+4. the original text for side-by-side comparison
+
+After the demo, ask:
+
+```text
+Do you want another demo on your own input? If yes, send your text and I will detect private information, let you choose what to preserve, and then show the sanitized result alongside the original.
+```
+
 ### Step 1: Detect
 
 Run the script without `--preserve` first:
@@ -162,6 +191,13 @@ python3 regex_privacy_sanitizer.py --text "<user text>" --preserve "2,5"
 ```
 
 Return only the final sanitized text unless the user asks for more detail.
+
+For interactive user-facing runs, prefer returning:
+
+1. the detected list
+2. the preserve prompt
+3. the sanitized text
+4. the original text for comparison
 
 ## Placeholder Policy
 
