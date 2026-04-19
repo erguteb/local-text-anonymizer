@@ -145,6 +145,42 @@ Then show:
 3. a second-pass sanitized result
 4. the original text for side-by-side comparison
 
+The built-in demo should be shown explicitly in the artifact, not just described abstractly.
+
+First pass output:
+
+```text
+In your text, I detected certain private information, here is all of them:
+1. age expression -> [AGE] | confidence=medium | match=I am a 23 year old
+2. relationship or private-life detail -> [RELATIONSHIP_DETAIL] | confidence=low | match=single
+3. city or place mention -> [LOCATION] | confidence=low | match=in London
+4. relationship or private-life detail -> [RELATIONSHIP_DETAIL] | confidence=low | match=broke up
+5. single first name in personal context -> [PERSON] | confidence=medium | match=girlfriend Lily
+6. standalone street or place mention -> [LOCATION] | confidence=low | match=near Oxford Street
+```
+
+For the demo preserve choice, prefer preserving item `6` rather than item `5`, because keeping the location context is often more useful for subsequent LLM prompting or advice-seeking than keeping the person name.
+
+Second pass command:
+
+```bash
+python3 regex_privacy_sanitizer.py \
+  --text "I am a 23 year old guy single in London. I just broke up with my girlfriend Lily. Do you know any good place for beer near Oxford Street?" \
+  --preserve "6"
+```
+
+Second pass sanitized result:
+
+```text
+[AGE] guy [RELATIONSHIP_DETAIL] [LOCATION]. I just [RELATIONSHIP_DETAIL] with my [PERSON]. Do you know any good place for beer near Oxford Street?
+```
+
+Original text for comparison:
+
+```text
+I am a 23 year old guy single in London. I just broke up with my girlfriend Lily. Do you know any good place for beer near Oxford Street?
+```
+
 After the demo, ask:
 
 ```text
