@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+import pathlib
+import sys
 import unittest
 import urllib.error
 from unittest.mock import patch
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 import main
 
@@ -55,6 +59,24 @@ class TestOllamaEndpointMessaging(unittest.TestCase):
         ):
             names = main.ollama_list_models(base_url="http://10.0.0.5:11434")
         self.assertEqual(names, ["qwen3.5:latest"])
+
+    def test_hf_cache_check_reports_missing_models(self):
+        with patch("main.cached_file", return_value=None):
+            present, missing = main.check_local_hf_model_cache(
+                ["jxm/gtr__nq__32", "t5-base"],
+                cache_dir="/tmp/hf-cache",
+            )
+        self.assertEqual(present, [])
+        self.assertEqual(missing, ["jxm/gtr__nq__32", "t5-base"])
+
+    def test_vec2text_asset_guidance_mentions_local_cache_and_missing_models(self):
+        message = main.format_vec2text_asset_guidance(
+            missing_model_ids=["jxm/gtr__nq__32", "t5-base"],
+            cache_dir="/tmp/hf-cache",
+        )
+        self.assertIn("Missing local cache entries: jxm/gtr__nq__32, t5-base", message)
+        self.assertIn("Checked cache: /tmp/hf-cache", message)
+        self.assertIn("full anonymization path", message)
 
 
 if __name__ == "__main__":

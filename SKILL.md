@@ -95,6 +95,7 @@ python3 -m py_compile main.py
 - Python 3 is installed.
 - The skill runs locally only.
 - If Ollama is used, a compatible local Ollama server is running at the configured endpoint and the chosen model is already available.
+- The vec2text anonymization path also requires local Hugging Face checkpoints. If those checkpoints are missing from the local cache, the full representative anonymization run may require a one-time model download before it can complete.
 - No commercial LLM service is used at any point in the anonymization flow.
 
 ## Ollama setup
@@ -169,6 +170,10 @@ transformers monkey-patch that requires `transformers==4.37.2`, and the pinned s
 `requirements.txt` is the tested environment for this skill. In particular, `accelerate` is
 also pinned because newer 1.x releases can break the vec2text / transformers stack used here.
 
+If your environment restricts network access, preflight must also confirm that the required
+vec2text/Hugging Face checkpoints are already present in the configured local cache. Ollama
+readiness alone is not enough for the full anonymization path.
+
 ## Canonical entrypoint
 
 Run:
@@ -223,6 +228,10 @@ Expected result:
 - preflight reports the pinned package versions
 - preflight reports the pinned `accelerate` version as part of the compatibility contract
 - preflight prints the configured `--ollama-base-url`
+- preflight prints the configured vec2text cache directory
+- preflight reports the required vec2text/Hugging Face model ids
+- preflight reports whether those local checkpoints are already present or missing
+- if required local checkpoints are missing, preflight marks the full anonymization path as blocked until those assets are available locally
 - preflight reports whether the `ollama` binary is installed locally
 - if Ollama is reachable at that configured endpoint, preflight reports:
   - endpoint reachable
@@ -259,7 +268,7 @@ Expected result:
 Before the representative example, run preflight first and verify that the configured
 `--ollama-base-url` is reachable and that the requested model is available locally. Only run
 the full Ollama example if preflight confirms that the intended endpoint is available. If
-Ollama is unavailable, skip this example and use the smoke test plus code inspection as the
+Ollama is unavailable, or if preflight reports missing vec2text/Hugging Face checkpoints, skip this example and use the smoke test plus code inspection as the
 local validation path.
 
 For a normal Linux machine, the intended Ollama-ready sequence is:
@@ -279,6 +288,10 @@ python3 main.py --preflight --llm-backend ollama --paraphrase-model "qwen3.5:lat
 ```
 
 Only after those succeed should you run the reduced-runtime validation example below.
+
+Preflight must also report the vec2text/Hugging Face assets as locally available. If preflight
+reports missing checkpoints, populate the local cache first. A network-restricted environment
+cannot complete the representative anonymization run until those assets already exist locally.
 
 Use `--fast` for the first end-to-end validation pass. This mode is the preferred smoke
 validation path because the full vec2text inversion and correction pipeline can be slow on a

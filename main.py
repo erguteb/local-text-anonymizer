@@ -40,6 +40,15 @@ import torch
 import torch.nn.functional as F
 import vec2text
 from transformers import AutoModelForCausalLM, AutoModelForSeq2SeqLM, AutoTokenizer
+from transformers.utils.hub import cached_file
+
+
+DEFAULT_VEC2TEXT_INVERSION_MODEL = "jxm/gtr__nq__32"
+DEFAULT_VEC2TEXT_CORRECTOR_MODEL = "jxm/gtr__nq__32__correct"
+VEC2TEXT_TRANSITIVE_MODEL_IDS = (
+    "t5-base",
+    "sentence-transformers/gtr-t5-base",
+)
 
 
 # =========================
@@ -715,11 +724,71 @@ def format_ollama_endpoint_guidance(base_url: str) -> str:
     )
 
 
+def required_vec2text_model_ids(
+    *,
+    inversion_model_name: str,
+    corrector_model_name: str,
+) -> List[str]:
+    """Return the local model ids required by the vec2text anonymization path."""
+
+    return dedupe_preserve_order(
+        [
+            inversion_model_name,
+            corrector_model_name,
+            *VEC2TEXT_TRANSITIVE_MODEL_IDS,
+        ]
+    )
+
+
+def check_local_hf_model_cache(
+    model_ids: Sequence[str],
+    *,
+    cache_dir: Optional[str] = None,
+) -> Tuple[List[str], List[str]]:
+    """Return (present, missing) Hugging Face model ids available in local cache."""
+
+    present: List[str] = []
+    missing: List[str] = []
+    for model_id in dedupe_preserve_order(list(model_ids)):
+        config_path = cached_file(
+            model_id,
+            "config.json",
+            cache_dir=cache_dir,
+            local_files_only=True,
+            _raise_exceptions_for_missing_entries=False,
+            _raise_exceptions_for_connection_errors=False,
+        )
+        if config_path:
+            present.append(model_id)
+        else:
+            missing.append(model_id)
+    return present, missing
+
+
+def format_vec2text_asset_guidance(
+    *,
+    missing_model_ids: Sequence[str],
+    cache_dir: Optional[str],
+) -> str:
+    """Return user-facing guidance for missing local vec2text/HF assets."""
+
+    cache_note = cache_dir or "(default Hugging Face cache)"
+    missing_line = ", ".join(missing_model_ids) if missing_model_ids else "(none)"
+    return (
+        "The full anonymization path still requires local vec2text/Hugging Face checkpoints. "
+        f"Missing local cache entries: {missing_line}. "
+        f"Checked cache: {cache_note}. "
+        "If network access is available, pre-download these checkpoints before the full run. "
+        "If network access is blocked, the representative anonymization example will not complete "
+        "until these assets are present locally."
+    )
+
+
 def load_vec2text_corrector(
     device: str,
     *,
-    inversion_model_name: str = "jxm/gtr__nq__32",
-    corrector_model_name: str = "jxm/gtr__nq__32__correct",
+    inversion_model_name: str = DEFAULT_VEC2TEXT_INVERSION_MODEL,
+    corrector_model_name: str = DEFAULT_VEC2TEXT_CORRECTOR_MODEL,
     cache_dir: Optional[str] = None,
 ) -> Any:
     """
@@ -2193,13 +2262,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--vec2text-inversion-model",
         type=str,
-        default="jxm/gtr__nq__32",
+        default=DEFAULT_VEC2TEXT_INVERSION_MODEL,
         help="Inversion model checkpoint name.",
     )
     parser.add_argument(
         "--vec2text-corrector-model",
         type=str,
-        default="jxm/gtr__nq__32__correct",
+        default=DEFAULT_VEC2TEXT_CORRECTOR_MODEL,
         help="Corrector model checkpoint name.",
     )
     parser.add_argument(
@@ -2377,6 +2446,7 @@ def main() -> None:
         print("transformers:", getattr(transformers, "__version__", "unknown"))
         print("vec2text:", getattr(vec2text, "__version__", "unknown"))
         print("ollama_base_url:", args.ollama_base_url)
+        print("vec2text_cache_dir:", args.vec2text_cache_dir or "(default Hugging Face cache)")
         ollama_binary = shutil.which("ollama")
         if ollama_binary:
             print("ollama_binary: present")
@@ -2400,6 +2470,33 @@ def main() -> None:
                 f"{getattr(accelerate, '__version__', 'unknown')}. "
                 "Expected 0.26.1 for compatibility with transformers==4.37.2 and vec2text==0.0.13."
             )
+        required_model_ids = required_vec2text_model_ids(
+            inversion_model_name=args.vec2text_inversion_model,
+            corrector_model_name=args.vec2text_corrector_model,
+        )
+        present_model_ids, missing_model_ids = check_local_hf_model_cache(
+            required_model_ids,
+            cache_dir=args.vec2text_cache_dir,
+        )
+        print("vec2text_required_models:", ", ".join(required_model_ids))
+        print(
+            "vec2text_local_models_present:",
+            ", ".join(present_model_ids) if present_model_ids else "(none)",
+        )
+        if missing_model_ids:
+            print("vec2text_local_model_status: missing")
+            print("vec2text_missing_models:", ", ".join(missing_model_ids))
+            print(
+                "vec2text_model_hint:",
+                format_vec2text_asset_guidance(
+                    missing_model_ids=missing_model_ids,
+                    cache_dir=args.vec2text_cache_dir,
+                ),
+            )
+            print("full_pipeline_status: blocked_until_vec2text_assets_are_local")
+        else:
+            print("vec2text_local_model_status: ready")
+            print("full_pipeline_status: vec2text_assets_available")
         if args.llm_backend == "ollama":
             try:
                 model_names = ollama_list_models(
@@ -2473,12 +2570,29 @@ def main() -> None:
     print("\nDevice:", device)
 
     model_load_start = time.perf_counter()
-    corrector = load_vec2text_corrector(
-        device=device,
-        inversion_model_name=args.vec2text_inversion_model,
-        corrector_model_name=args.vec2text_corrector_model,
-        cache_dir=args.vec2text_cache_dir,
-    )
+    try:
+        corrector = load_vec2text_corrector(
+            device=device,
+            inversion_model_name=args.vec2text_inversion_model,
+            corrector_model_name=args.vec2text_corrector_model,
+            cache_dir=args.vec2text_cache_dir,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _, missing_model_ids = check_local_hf_model_cache(
+            required_vec2text_model_ids(
+                inversion_model_name=args.vec2text_inversion_model,
+                corrector_model_name=args.vec2text_corrector_model,
+            ),
+            cache_dir=args.vec2text_cache_dir,
+        )
+        guidance = format_vec2text_asset_guidance(
+            missing_model_ids=missing_model_ids,
+            cache_dir=args.vec2text_cache_dir,
+        )
+        raise RuntimeError(
+            "Failed to load the local vec2text/Hugging Face assets required by the anonymization "
+            f"pipeline. {guidance} Original error: {exc}"
+        ) from exc
     record_stage("model_load_sec", model_load_start)
 
     # Main path: keyword-guided anonymization (used for downstream final output).

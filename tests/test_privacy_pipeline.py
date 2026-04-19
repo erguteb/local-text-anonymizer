@@ -102,6 +102,52 @@ class TestTemplateFallback(unittest.TestCase):
         self.assertIn("Context: I just moved to London for work after a breakup", output)
         self.assertIn("Request: I want a cozy restaurant tonight where dining alone feels comfortable.", output)
 
+    def test_output_without_public_fusion_omits_slot_fields(self):
+        processed = main.preprocess_privacy_text(
+            "I’m [AGE], just moved to London for work after a breakup. I want a cozy restaurant tonight where dining alone feels comfortable.",
+            keywords=["restaurant", "UK", "London", "cozy", "solo dining"],
+            removal_targets=[],
+            max_privacy_chunks=2,
+        )
+        output = main.build_fused_fallback_output(
+            preprocessed=processed,
+            keywords=processed.preserved_keywords,
+            residual_summary=processed.residual_text,
+            candidate_text=(
+                "I just moved for work after a breakup. "
+                "I want a place tonight where dining alone feels comfortable."
+            ),
+            include_public_fusion=False,
+        )
+        self.assertIn("Context:", output)
+        self.assertIn("Request:", output)
+        self.assertNotIn("Task:", output)
+        self.assertNotIn("Location:", output)
+        self.assertNotIn("Preferences:", output)
+        self.assertNotIn("London", output)
+        self.assertNotIn("restaurant", output)
+
+    def test_output_with_public_fusion_reinserts_slot_fields(self):
+        processed = main.preprocess_privacy_text(
+            "I’m [AGE], just moved to London for work after a breakup. I want a cozy restaurant tonight where dining alone feels comfortable.",
+            keywords=["restaurant", "UK", "London", "cozy", "solo dining"],
+            removal_targets=[],
+            max_privacy_chunks=2,
+        )
+        output = main.build_fused_fallback_output(
+            preprocessed=processed,
+            keywords=processed.preserved_keywords,
+            residual_summary=processed.residual_text,
+            candidate_text=(
+                "I just moved to London for work after a breakup. "
+                "I want a cozy restaurant tonight where dining alone feels comfortable."
+            ),
+            include_public_fusion=True,
+        )
+        self.assertIn("Task: restaurant, solo dining", output)
+        self.assertIn("Location: UK, London", output)
+        self.assertIn("Preferences: cozy", output)
+
     def test_fusion_rejects_nonsense_and_keeps_deterministic_floor(self):
         processed = main.preprocess_privacy_text(
             "I’m [AGE], just moved to London for work after a breakup. I want a cozy restaurant tonight where dining alone feels comfortable.",
