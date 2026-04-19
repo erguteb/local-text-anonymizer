@@ -120,7 +120,7 @@ PATTERNS: List[PatternSpec] = [
     PatternSpec(
         "zip or postal code",
         "[POSTAL_CODE]",
-        r"\b\d{5}(?:-\d{4})\b|\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b",
+        r"\b\d{5}(?:-\d{4})?\b|\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b",
         "medium",
     ),
     PatternSpec(
@@ -144,7 +144,7 @@ PATTERNS: List[PatternSpec] = [
     PatternSpec(
         "account or order id",
         "[REFERENCE_ID]",
-        r"\b(?:account|order|booking|reservation|tracking|invoice|case|ticket)\s*(?:id|number|#|no\.?)\s*[:#-]?\s*[A-Z0-9-]{3,24}\b",
+        r"\b(?:account|order|booking|reservation|tracking|invoice|case|ticket)\s*(?:(?:id|number|#|no\.?)\s*)?[:#-]?\s*[A-Z0-9-]{3,24}\b",
         "medium",
     ),
     PatternSpec(
@@ -164,7 +164,7 @@ PATTERNS: List[PatternSpec] = [
     PatternSpec(
         "full person name",
         "[PERSON]",
-        r"\b[A-Z][a-z]{1,20}\s+[A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20})?\b",
+        r"\b(?!(?:Contact|Call|Email|Text|Meet|Visit|Reach|Message|Thanks|Dear)\b)[A-Z][a-z]{1,20}\s+[A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20})?\b",
         "low",
         flags=0,
     ),
@@ -307,7 +307,8 @@ def main() -> None:
     args = build_arg_parser().parse_args()
     detections = detect_private_information(args.text)
     preserve_ids = parse_preserve_ids(args.preserve)
-    sanitized = sanitize_text(args.text, detections, preserve_ids)
+    should_render_sanitized = bool(preserve_ids) or not detections
+    sanitized = sanitize_text(args.text, detections, preserve_ids) if should_render_sanitized else None
 
     if args.format == "json":
         payload = {
@@ -322,8 +323,9 @@ def main() -> None:
     print(render_detection_list(detections))
     if detections:
         print("\nIf you want to preserve any detected item, reply with its number(s).")
-    print("\nSanitized text:")
-    print(sanitized)
+    if should_render_sanitized:
+        print("\nSanitized text:")
+        print(sanitized)
 
 
 if __name__ == "__main__":

@@ -266,11 +266,13 @@ Purpose:
 Regex:
 
 ```regex
-\b\d{5}(?:-\d{4})\b|\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b
+\b\d{5}(?:-\d{4})?\b|\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b
 ```
 
 Purpose:
-- detect US ZIP codes and some UK-style postal codes
+- detect plain 5-digit US ZIP codes
+- detect ZIP+4 codes
+- detect some UK-style postal codes
 
 ### License plates
 
@@ -310,11 +312,14 @@ Purpose:
 Regex:
 
 ```regex
-\b(?:account|order|booking|reservation|tracking|invoice|case|ticket)\s*(?:id|number|#|no\.?)\s*[:#-]?\s*[A-Z0-9-]{3,24}\b
+\b(?:account|order|booking|reservation|tracking|invoice|case|ticket)\s*(?:(?:id|number|#|no\.?)\s*)?[:#-]?\s*[A-Z0-9-]{3,24}\b
 ```
 
 Purpose:
-- detect operational reference identifiers
+- detect operational reference identifiers such as:
+  - `order 12345678`
+  - `order number 12345678`
+  - `ticket ABC-123`
 
 ### Organization names
 
@@ -343,14 +348,15 @@ Purpose:
 Regex:
 
 ```regex
-\b[A-Z][a-z]{1,20}\s+[A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20})?\b
+\b(?!(?:Contact|Call|Email|Text|Meet|Visit|Reach|Message|Thanks|Dear)\b)[A-Z][a-z]{1,20}\s+[A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20})?\b
 ```
 
 Purpose:
 - detect simple multi-word capitalized names
 
 Warning:
-- this is broad and can match non-name capitalized phrases
+- this is still broad and can match non-name capitalized phrases
+- a small stop-list is used to avoid obvious sentence-leading verbs such as `Contact`
 
 ### Cryptocurrency wallets
 
@@ -395,6 +401,11 @@ Once the user chooses which detection numbers to preserve, the script:
 2. replaces remaining spans with their placeholders
 3. keeps all other text unchanged
 4. lightly normalizes punctuation spacing
+
+In text mode, the script is intentionally detect-first:
+
+1. first run without `--preserve`: prints the numbered detection list only
+2. second run with `--preserve` (or with no detections): prints the sanitized text
 
 ## Known Limitations
 
