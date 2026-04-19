@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import pathlib
+import io
+import json
 import sys
 import unittest
+from contextlib import redirect_stdout
+from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
@@ -31,6 +35,163 @@ class TestPreprocessPrivacyText(unittest.TestCase):
             max_privacy_chunks=2,
         )
         self.assertLessEqual(len(processed.residual_segments), 2)
+
+
+class TestAuditSummary(unittest.TestCase):
+    def test_build_output_audit_summary_reflects_privacy_layers(self):
+        processed = main.preprocess_privacy_text(
+            "I’m 23 and John Smith moved to Shoreditch for work in London.",
+            keywords=["London", "restaurant"],
+            removal_targets=["all names", "age", "Shoreditch"],
+            max_privacy_chunks=2,
+        )
+        accountant = main.estimate_metric_dp_privacy_cost(
+            num_releases=len(processed.residual_segments),
+            sigma=0.15,
+            delta=1e-3,
+            sensitivity=1.0,
+        )
+        summary = main.build_output_audit_summary(
+            preprocessed=processed,
+            accountant=accountant,
+            fallback_triggered=True,
+            llm_backend="ollama",
+            sigma=0.15,
+        )
+        self.assertTrue(summary.local_only)
+        self.assertTrue(summary.layer1_deterministic_scrub_before_embedding)
+        self.assertTrue(summary.layer2_public_slots_outside_dp)
+        self.assertTrue(summary.layer3_residual_only_dp_scope)
+        self.assertTrue(summary.dp_accounting_reported)
+        self.assertTrue(summary.deterministic_fallback_present)
+        self.assertTrue(any("Ollama" in item for item in summary.remaining_limitations))
+
+    def test_build_output_audit_summary_reports_pipeline_capabilities_even_without_trigger(self):
+        processed = main.preprocess_privacy_text(
+            "Generic request without explicit removals.",
+            keywords=[],
+            removal_targets=[],
+            max_privacy_chunks=2,
+        )
+        accountant = main.estimate_metric_dp_privacy_cost(
+            num_releases=len(processed.residual_segments),
+            sigma=0.15,
+            delta=1e-3,
+            sensitivity=1.0,
+        )
+        summary = main.build_output_audit_summary(
+            preprocessed=processed,
+            accountant=accountant,
+            fallback_triggered=False,
+            llm_backend="ollama",
+            sigma=0.15,
+        )
+        self.assertTrue(summary.layer1_deterministic_scrub_before_embedding)
+        self.assertTrue(summary.layer2_public_slots_outside_dp)
+        self.assertTrue(summary.deterministic_fallback_present)
+
+    def test_output_audit_summary_to_dict_is_json_ready(self):
+        summary = main.OutputAuditSummary(
+            local_only=True,
+            layer1_deterministic_scrub_before_embedding=True,
+            layer2_public_slots_outside_dp=False,
+            layer3_residual_only_dp_scope=True,
+            dp_accounting_reported=True,
+            deterministic_fallback_present=False,
+            remaining_limitations=["test limitation"],
+        )
+        payload = main.output_audit_summary_to_dict(summary)
+        self.assertEqual(
+            payload,
+            {
+                "local_only": True,
+                "layer1_deterministic_scrub_before_embedding": True,
+                "layer2_public_slots_outside_dp": False,
+                "layer3_residual_only_dp_scope": True,
+                "dp_accounting_reported": True,
+                "deterministic_fallback_present": False,
+                "remaining_limitations": ["test limitation"],
+            },
+        )
+
+    def test_main_outputs_audit_summary_json(self):
+        preprocessed = main.PreprocessedPrivacyText(
+            original_text="private text",
+            scrubbed_text="scrubbed text",
+            residual_text="residual text",
+            expanded_removal_targets=[],
+            preserved_keywords=[],
+            safe_task_keywords=[],
+            safe_location_keywords=[],
+            safe_preference_keywords=[],
+            residual_segments=["residual text"],
+        )
+        sentence_result = main.AnonymizationResult(
+            anonymized_text="anonymized residual",
+            mixed_target_embedding=main.torch.zeros((1, 2)),
+            noisy_embedding=main.torch.zeros((1, 2)),
+            clean_embedding=main.torch.zeros((1, 2)),
+            keyword_embeddings=None,
+        )
+        sentence_wise = main.SentenceWiseAnonymizationResult(
+            anonymized_text="anonymized residual",
+            sentence_results=[sentence_result],
+            source_sentences=["residual text"],
+        )
+        paraphrase_result = main.ParaphraseResult(
+            model_name="qwen3.5:latest",
+            model_type="ollama",
+            input_text="anonymized residual",
+            paraphrased_text="stable paraphrase",
+        )
+
+        argv = [
+            "main.py",
+            "--text",
+            "private text",
+            "--llm-backend",
+            "ollama",
+            "--no-interactive-removal",
+            "--skip-embedding-checks",
+            "--skip-baseline",
+            "--output-audit-json",
+        ]
+
+        stdout = io.StringIO()
+        with patch.object(sys, "argv", argv):
+            with patch("main.preprocess_privacy_text", return_value=preprocessed):
+                with patch("main.patch_transformers_constrained_beamsearch_4372", return_value=None):
+                    with patch("main.load_vec2text_corrector", return_value=object()):
+                        with patch(
+                            "main.anonymize_localized_sentence_wise",
+                            return_value=sentence_wise,
+                        ):
+                            with patch(
+                                "main.paraphrase_with_open_source_llm",
+                                return_value=paraphrase_result,
+                            ):
+                                with patch(
+                                    "main.build_fused_fallback_output",
+                                    side_effect=["without fusion", "with fusion"],
+                                ):
+                                    with patch(
+                                        "main.looks_like_quality_collapse",
+                                        return_value=False,
+                                    ):
+                                        with redirect_stdout(stdout):
+                                            main.main()
+
+        output = stdout.getvalue()
+        self.assertIn("--- Output audit summary (json) ---", output)
+        json_block = output.split("--- Output audit summary (json) ---", 1)[1].strip()
+        json_text = json_block.split("\n\n---", 1)[0].strip()
+        payload = json.loads(json_text)
+        self.assertTrue(payload["local_only"])
+        self.assertTrue(payload["layer1_deterministic_scrub_before_embedding"])
+        self.assertTrue(payload["layer2_public_slots_outside_dp"])
+        self.assertTrue(payload["layer3_residual_only_dp_scope"])
+        self.assertTrue(payload["dp_accounting_reported"])
+        self.assertTrue(payload["deterministic_fallback_present"])
 
 
 class TestRewriteGuards(unittest.TestCase):

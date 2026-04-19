@@ -13,6 +13,10 @@ import main
 
 
 class TestOllamaEndpointMessaging(unittest.TestCase):
+    def test_parser_supports_output_audit_json_flag(self):
+        args = main.build_arg_parser().parse_args(["--output-audit-json"])
+        self.assertTrue(args.output_audit_json)
+
     def test_guidance_mentions_configured_endpoint_and_default_local_example(self):
         message = main.format_ollama_endpoint_guidance("http://10.0.0.5:11434")
         self.assertIn("http://10.0.0.5:11434", message)

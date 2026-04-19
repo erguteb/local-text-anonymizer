@@ -1,16 +1,29 @@
+---
+name: local-anonymizer-improvement
+description: Hardens an existing local text anonymization pipeline into a three-layer privacy architecture with deterministic pre-embedding scrub, approved public slot preservation, and residual-only differential privacy accounting. Use when auditing, improving, or validating a local anonymization or privacy-preserving NLP pipeline, especially when the user wants to confirm what is removed before embeddings, what remains outside DP, and whether fallback behavior stays local and deterministic.
+---
+
 # Local Anonymizer Improvement
 
 ## Purpose
 
-This skill implements and validates a fully local three-layer text anonymization workflow for free-form user prompts. It is self-contained: the skill defines the privacy model, the execution path, the expected runtime behavior, and the verification steps for the bundled `main.py`.
+This skill upgrades and validates a fully local three-layer text anonymization workflow for free-form user prompts. It is designed for repositories that already contain a local anonymizer and need to be hardened, audited, or validated rather than redesigned from scratch.
 
-The skill’s job is to run a local anonymization pipeline that:
+Use this skill when you need to:
 
-1. deterministically scrubs explicit sensitive spans before any embedding step
-2. preserves approved public or utility-critical slots outside the privacy mechanism
-3. applies DP-style perturbation and explicit privacy accounting only to the ambiguous residual content
-4. uses only local models and local services
-5. produces a stable final output even when free-form generation quality collapses
+- harden an existing local anonymizer without rewriting it from scratch
+- verify that explicit sensitive information is scrubbed before embeddings
+- confirm that approved public keywords are preserved outside the DP mechanism
+- confirm that only residual ambiguous content is counted by the DP accountant
+- validate that degraded generation falls back to deterministic structured output
+
+The local anonymization pipeline must:
+
+1. deterministically scrub explicit sensitive spans before any embedding step
+2. preserve approved public or utility-critical slots outside the privacy mechanism
+3. apply DP-style perturbation and explicit privacy accounting only to the ambiguous residual content
+4. use only local models and local services
+5. produce a stable final output even when free-form generation quality collapses
 
 The privacy architecture is:
 
@@ -20,6 +33,18 @@ The privacy architecture is:
    Preserve user-approved public or utility-preserving information outside the privacy mechanism.
 3. **Layer 3: DP protection for ambiguous residual content**
    Apply embedding perturbation and privacy accounting only to the residual ambiguous content.
+
+## Core workflow
+
+Follow this workflow in order:
+
+1. verify the local environment and artifact entrypoint
+2. inspect the implementation to confirm the three privacy layers
+3. run the reduced-runtime local validation path first
+4. only run the full heavyweight path if needed
+5. confirm rewrite constraints and guarded fallback behavior
+6. run local regression checks
+7. produce the final audit summary
 
 ## What This Skill Does
 
