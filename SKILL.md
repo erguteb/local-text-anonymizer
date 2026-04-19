@@ -7,6 +7,22 @@ description: Use when the user wants deterministic local text sanitization witho
 
 This skill implements a fully deterministic privacy-review workflow for free-form text. It does not use any hosted LLM, local LLM, embedding model, or classifier at runtime. Detection and replacement are done with regex and local heuristics only.
 
+## Install First
+
+If you are installing this skill, do not treat this `SKILL.md` file as the whole artifact.
+
+This skill requires the companion runtime file `regex_privacy_sanitizer.py`, and the correct source of truth is the public GitHub repository:
+
+- `https://github.com/erguteb/local-text-anonymizer`
+
+The installation rule is simple:
+
+1. Go to the public GitHub repo above.
+2. Download or clone the repository root, not just `SKILL.md`.
+3. Make sure `SKILL.md` and `regex_privacy_sanitizer.py` stay in the same folder.
+
+If an agent only has `SKILL.md`, that agent has an incomplete artifact and should immediately fetch the full repository before trying to install or test anything.
+
 This skill folder is self-contained. It requires only:
 
 - `SKILL.md`
@@ -43,12 +59,16 @@ Do not use this skill when the user wants semantic paraphrasing, contextual rewr
 When this skill is used on a user-provided text, follow this interaction:
 
 1. Run the detector script on the input text.
-2. Reply with:
+2. Reply with a reviewer-friendly summary first:
    `In your text, I detected certain private information, here is all of them:`
-3. List each detection with its number, category, placeholder, confidence, and matched text.
-4. Ask the user which numbers to preserve, if any.
-5. Re-run sanitization preserving those detection numbers.
-6. Return the final sanitized sentence.
+3. Show a numbered private-information summary list such as:
+   `1. age`
+   `2. relationship detail`
+   `3. location`
+4. Then show the full detector list with number, category, placeholder, confidence, and matched text.
+5. Ask the user which numbers to preserve, if any.
+6. Re-run sanitization preserving those detection numbers.
+7. Return the final sanitized text and also show the original text for comparison.
 
 If nothing is detected, say so directly and return the original text unchanged.
 
@@ -182,14 +202,15 @@ python3 regex_privacy_sanitizer.py --text "I am a 23 year old guy single in Lond
 
 Then show:
 
-1. the detected private-information list
-2. a preserve-choice prompt
-3. a second-pass sanitized result
-4. the original text for side-by-side comparison
+1. a short numbered summary of the private information detected
+2. the full detector output
+3. a preserve-choice prompt
+4. a second-pass sanitized result
+5. the original text for side-by-side comparison
 
 The built-in demo should be shown explicitly in the artifact, not just described abstractly.
 
-First pass output:
+First pass output from the script:
 
 ```text
 In your text, I detected certain private information, here is all of them:
@@ -201,7 +222,7 @@ In your text, I detected certain private information, here is all of them:
 6. standalone street or place mention -> [LOCATION] | confidence=low | match=near Oxford Street
 ```
 
-Interpretation of the demo detections:
+When presenting the demo to the reviewer, add this explicit private-information summary before or alongside the raw detector list:
 
 1. age
 2. relationship status
@@ -209,6 +230,13 @@ Interpretation of the demo detections:
 4. breakup/private-life detail
 5. person name
 6. specific destination/location for the downstream recommendation query
+
+Then ask clearly whether any item should be preserved. Use wording like:
+
+```text
+If you want to preserve any detected item, reply with its number(s).
+For this demo, preserving item 6 is recommended because it keeps the useful place constraint.
+```
 
 This is why preserving item `6` is the recommended demo choice: it keeps the useful location
 constraint for a later LLM or text-sharing task, while still masking the more sensitive personal details.
@@ -229,6 +257,13 @@ Second pass sanitized result:
 [AGE] guy [RELATIONSHIP_DETAIL] [LOCATION]. I just [RELATIONSHIP_DETAIL] with my [PERSON]. Do you know any good place for beer near Oxford Street?
 ```
 
+When showing the preserve example, say this explicitly:
+
+```text
+If I preserve the 6th item, the sanitized result becomes:
+[AGE] guy [RELATIONSHIP_DETAIL] [LOCATION]. I just [RELATIONSHIP_DETAIL] with my [PERSON]. Do you know any good place for beer near Oxford Street?
+```
+
 Original text for comparison:
 
 ```text
@@ -242,10 +277,11 @@ Use this exact follow-up prompt:
 ```text
 If you want, now send your own text. I will:
 1. detect the private information in it,
-2. show you the numbered list,
-3. let you choose which items to preserve,
-4. return the sanitized text,
-5. and show the original text for comparison.
+2. show you a numbered summary of the private information detected,
+3. show you the full detected list with categories and matched spans,
+4. let you choose which items to preserve,
+5. return the sanitized text,
+6. and show the original text for comparison.
 ```
 
 If the user provides text, run the same two-step flow immediately on that input.
@@ -273,6 +309,11 @@ Your reply should mirror the tool output and explicitly invite preservation choi
 
 ```text
 In your text, I detected certain private information, here is all of them:
+Summary:
+1. ...
+2. ...
+
+Detailed detections:
 1. ...
 2. ...
 
@@ -293,10 +334,11 @@ Return only the final sanitized text unless the user asks for more detail.
 
 For interactive user-facing runs, prefer returning:
 
-1. the detected list
-2. the preserve prompt
-3. the sanitized text
-4. the original text for comparison
+1. a numbered summary of the private information detected
+2. the detailed detected list
+3. the preserve prompt
+4. the sanitized text
+5. the original text for comparison
 
 ## Placeholder Policy
 
