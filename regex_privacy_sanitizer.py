@@ -282,6 +282,32 @@ def looks_like_place_name(text: str) -> bool:
     return all(token in place_tokens for token in tokens[:2])
 
 
+def looks_like_non_location_phrase(text: str) -> bool:
+    tokens = tuple(text.split())
+    if not tokens:
+        return False
+    blocked_starts = {
+        "Contact",
+        "Please",
+        "Review",
+        "Meet",
+        "Call",
+        "Email",
+        "Text",
+        "Message",
+        "Ship",
+    }
+    blocked_pairs = {
+        ("Contact", "Dr"),
+        ("Privacy", "Policy"),
+        ("Customer", "Service"),
+        ("Order", "Status"),
+    }
+    if tokens[:2] in blocked_pairs:
+        return True
+    return tokens[0] in blocked_starts
+
+
 def looks_like_common_non_name_token(text: str) -> bool:
     token = text.strip()
     common = {
@@ -324,6 +350,8 @@ def is_plausible_detection(det: Detection) -> bool:
         return not looks_like_place_name(det.text) and not looks_like_generic_non_name_phrase(det.text)
     if det.category == "single first name":
         return not looks_like_common_non_name_token(det.text)
+    if det.category in {"standalone street or place mention", "city or place mention"}:
+        return not looks_like_non_location_phrase(det.text)
     return True
 
 
