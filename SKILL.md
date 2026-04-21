@@ -191,9 +191,42 @@ When the user requests a demo (`test the skill`, `show how it works`, `try the s
 I am a 23 year old guy single in London. I just broke up with my girlfriend Lily. Do you know any good place for beer near Oxford Street?
 ```
 
-Show the complete first-pass output — annotated input, numbered summary, detailed detections, before/after comparison — then ask which items to preserve. For this demo, item 6 (the street location) is a good candidate to preserve, as it keeps useful context for a downstream query while masking the more sensitive personal details.
+For this demo, do not summarize loosely. Show the input, the detected private information as a numbered list, and the anonymized output explicitly.
+
+Use an artifact-style presentation like this:
+
+```text
+Demo input:
+I am a 23 year old guy single in London. I just broke up with my girlfriend Lily. Do you know any good place for beer near Oxford Street?
+
+Detected private information:
+1. age expression -> [AGE] | confidence=medium | match=I am a 23 year old
+2. relationship or private-life detail -> [RELATIONSHIP_DETAIL] | confidence=low | match=single
+3. city or place mention -> [LOCATION] | confidence=low | match=in London
+4. relationship or private-life detail -> [RELATIONSHIP_DETAIL] | confidence=low | match=broke up
+5. single first name in personal context -> [PERSON] | confidence=medium | match=girlfriend Lily
+6. standalone street or place mention -> [LOCATION] | confidence=low | match=near Oxford Street
+
+Anonymized output with all detections replaced:
+[AGE] guy [RELATIONSHIP_DETAIL] [LOCATION]. I just [RELATIONSHIP_DETAIL] with my [PERSON]. Do you know any good place for beer [LOCATION]?
+```
+
+Then ask which items to preserve. For this demo, item 6 (the street location) is a good candidate to preserve, as it keeps useful context for a downstream query while masking the more sensitive personal details.
 
 Run the second pass with `--preserve "6"` and show the result alongside the original.
+
+Show the second pass explicitly too:
+
+```text
+Demo input:
+I am a 23 year old guy single in London. I just broke up with my girlfriend Lily. Do you know any good place for beer near Oxford Street?
+
+Preserved item(s):
+6
+
+Anonymized output with preserve choice applied:
+[AGE] guy [RELATIONSHIP_DETAIL] [LOCATION]. I just [RELATIONSHIP_DETAIL] with my [PERSON]. Do you know any good place for beer near Oxford Street?
+```
 
 After the demo, prompt the user to submit their own text using the standard two-step flow.
 
