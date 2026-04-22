@@ -68,6 +68,7 @@ class PatternSpec:
     confidence: str
     flags: int = re.IGNORECASE
     rationale: str = ""
+    match_group: int = 0  # capturing group to use as the matched span (0 = full match)
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +181,7 @@ PATTERNS: list[PatternSpec] = [
     ),
     PatternSpec(
         "age expression", "[AGE]",
-        r"\b(?:age\s*\d{1,3}|\d{1,3}\s*(?:years?\s+old|year-old|year old)|i\s*[\'']?m\s*\d{1,3}|i am\s*\d{1,3}|i am a\s*\d{1,3}\s*year old|i am a\s*\d{1,3}\s*year-old)\b",
+        r"\b(?:age\s*\d{1,3}|\d{1,3}\s*(?:years?\s+old|year-old|year old)|i\s*[\'']?m\s*\d{1,3}|i am\s*\d{1,3})\b",
         "medium",
         rationale="The matched span explicitly states an age such as 'I'm 23' or '23 years old'.",
     ),
@@ -218,10 +219,11 @@ PATTERNS: list[PatternSpec] = [
     ),
     PatternSpec(
         "city or place mention", "[LOCATION]",
-        r"\b(?:in|near|around|from|to)\s+(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b",
+        r"\b(?:in|near|around|from|to)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b",
         "low",
         flags=0,
         rationale="The matched span is a preposition followed by one or more capitalized place-like words.",
+        match_group=1,
     ),
     PatternSpec(
         "zip or postal code", "[POSTAL_CODE]",
@@ -476,7 +478,7 @@ def detect_private_information(text: str) -> list[Detection]:
         rule_flags_text = flags_to_text(spec.flags)
         rationale = build_rationale(spec)
         for match in re.finditer(spec.pattern, text, flags=spec.flags):
-            matched_text = normalize_space(match.group(0))
+            matched_text = normalize_space(match.group(spec.match_group))
             if not matched_text:
                 continue
             raw.append(Detection(
@@ -484,8 +486,8 @@ def detect_private_information(text: str) -> list[Detection]:
                 category=spec.category,
                 placeholder=spec.placeholder,
                 text=matched_text,
-                start=match.start(),
-                end=match.end(),
+                start=match.start(spec.match_group),
+                end=match.end(spec.match_group),
                 confidence=spec.confidence,
                 rule_id=rule_id,
                 rule_pattern=spec.pattern,
