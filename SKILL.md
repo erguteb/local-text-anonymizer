@@ -1,6 +1,6 @@
 ---
 name: local-text-anonymizer
-description: Use when the user wants deterministic, offline text sanitization with no LLM or model dependency. Detects PII using exhaustive regex and rule-based patterns, presents a numbered review list, lets the user preserve selected items, and returns sanitized text with placeholders such as [EMAIL] or [PHONE].
+description: Activate when the user says "sanitize", "anonymize", "redact", "remove PII", "mask this", "scrub this", "make this safe to share", or pastes text and asks if it is safe to share or what private info it contains. Detects PII using exhaustive regex and rule-based patterns, presents a numbered review list, lets the user preserve selected items, and returns sanitized text with placeholders such as [EMAIL] or [PHONE]. Fully offline and deterministic — no LLM or model dependency.
 ---
 
 # Local Text Anonymizer
@@ -29,6 +29,8 @@ python3 regex_privacy_sanitizer.py --text "Contact Jane Doe at jane@example.com.
 
 The skill has no runtime dependencies beyond the Python standard library — no package installs, no network calls, no model downloads.
 
+**Requires:** Python 3.8 or later (standard library only).
+
 **Source repository:** `https://github.com/erguteb/local-text-anonymizer`
 
 ---
@@ -51,36 +53,41 @@ Do **not** use when the user wants semantic paraphrasing, contextual rewriting, 
 
 The bundled script detects 33 categories using exhaustive regex and local heuristics:
 
-| Category | Placeholder |
-|---|---|
-| Email addresses | `[EMAIL]` |
-| Phone numbers | `[PHONE]` |
-| Social media handles | `[SOCIAL_HANDLE]` |
-| URLs | `[URL]` |
-| IP addresses | `[IP_ADDRESS]` |
-| MAC addresses | `[MAC_ADDRESS]` |
-| SSNs | `[SSN]` |
-| EINs | `[EIN]` |
-| Credit card numbers | `[CREDIT_CARD]` |
-| IBANs | `[IBAN]` |
-| SWIFT/BIC codes | `[SWIFT_BIC]` |
-| Routing numbers | `[ROUTING_NUMBER]` |
-| Bank account numbers | `[BANK_ACCOUNT]` |
-| Passport numbers | `[PASSPORT]` |
-| Driver license numbers | `[DRIVER_LICENSE]` |
-| Date-of-birth expressions | `[DATE_OF_BIRTH]` |
-| Age expressions | `[AGE]` |
-| Street addresses | `[ADDRESS]` |
-| Zip/postal codes | `[POSTAL_CODE]` |
-| License plates | `[LICENSE_PLATE]` |
-| Medical record numbers | `[MEDICAL_RECORD]` |
-| Employee/student/customer IDs | `[ID]` |
-| Account/order/tracking reference IDs | `[REFERENCE_ID]` |
-| Organization names | `[ORGANIZATION]` |
-| Person names with titles | `[PERSON]` |
-| Heuristic full names | `[PERSON]` |
-| Bitcoin wallets | `[BITCOIN_WALLET]` |
-| Ethereum wallets | `[ETH_WALLET]` |
+| Category | Placeholder | Confidence |
+|---|---|---|
+| Email addresses | `[EMAIL]` | high |
+| Phone numbers | `[PHONE]` | high |
+| Social media handles | `[HANDLE]` | high |
+| URLs | `[URL]` | high |
+| IP addresses | `[IP_ADDRESS]` | high |
+| MAC addresses | `[MAC_ADDRESS]` | high |
+| SSNs | `[SSN]` | high |
+| EINs | `[EIN]` | medium |
+| Credit card numbers | `[CARD_NUMBER]` | high |
+| IBANs | `[IBAN]` | high |
+| SWIFT/BIC codes | `[SWIFT_BIC]` | medium |
+| Routing numbers | `[ROUTING_NUMBER]` | high |
+| Bank account numbers | `[BANK_ACCOUNT]` | high |
+| Passport numbers | `[PASSPORT]` | high |
+| Driver license numbers | `[DRIVER_LICENSE]` | high |
+| Date-of-birth expressions | `[DOB]` | high |
+| Age expressions | `[AGE]` | medium |
+| Relationship or private-life details | `[RELATIONSHIP_DETAIL]` | low |
+| Single first name in personal context | `[PERSON]` | medium |
+| Single first name (named/called) | `[PERSON]` | low |
+| Street addresses | `[ADDRESS]` | medium |
+| Standalone street or place mention | `[LOCATION]` | low |
+| City or place mention | `[LOCATION]` | low |
+| Zip/postal codes | `[POSTAL_CODE]` | medium |
+| License plates | `[LICENSE_PLATE]` | medium |
+| Medical record numbers | `[MEDICAL_RECORD_NUMBER]` | high |
+| Employee/student/customer IDs | `[INTERNAL_ID]` | high |
+| Account/order/tracking reference IDs | `[REFERENCE_ID]` | medium |
+| Organization names | `[ORG]` | medium |
+| Person names with titles | `[PERSON]` | medium |
+| Heuristic full names | `[PERSON]` | low |
+| Bitcoin wallets | `[CRYPTO_WALLET]` | medium |
+| Ethereum wallets | `[CRYPTO_WALLET]` | medium |
 
 Detection scope is intentionally broad. High-confidence categories match exact formats (e.g., email, credit card). Medium- and low-confidence categories use heuristics (e.g., names, organizations) and may produce false positives. Always preserve the script's confidence labels when presenting results to the user.
 

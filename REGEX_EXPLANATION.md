@@ -248,7 +248,7 @@ Purpose:
 Regex:
 
 ```regex
-\b(?:age\s*\d{1,3}|\d{1,3}\s*(?:years old|year-old)|i\s*[\'’]?m\s*\d{1,3}|i am\s*\d{1,3})\b
+\b(?:age\s*\d{1,3}|\d{1,3}\s*(?:years?\s+old|year-old|year old)|i\s*[\’’]?m\s*\d{1,3}|i am\s*\d{1,3})\b
 ```
 
 Purpose:
@@ -256,9 +256,11 @@ Purpose:
   - `age 23`
   - `23 years old`
   - `23 year old`
-  - `I'm 23`
+  - `I’m 23`
   - `I am 23`
-  - `I am a 23 year old`
+
+Note:
+- `I am a 23 year old` is covered by the `23 year old` alternative — the `I am a` prefix is intentionally excluded to keep the match tight
 
 ### Relationship or private-life detail
 

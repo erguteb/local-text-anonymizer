@@ -1,6 +1,6 @@
-# Regex-Only Privacy Sanitization for Practical Prompt Preparation: A Minimal-Dependency Local Skill
+# PrivateKickOff: Offline, LLM-Free PII Removal for Personal Agentic Prompt Pipelines
 
-**Authors:** First Author, Claw, Corresponding Author
+**Authors:** Ergute Bao, Hongyan Chang, and Ali Shahin Shamsabadi
 
 ## Abstract
 
